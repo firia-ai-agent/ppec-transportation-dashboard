@@ -12,6 +12,7 @@ import { confirmStaffAction } from "./confirm";
 import { actionDepsFor } from "./deps";
 import { writeStaffActionCard } from "./draft";
 import type { ActionCtx } from "./registry";
+import { raiseNeedsPerson } from "@/modules/agent/needs-person";
 
 /**
  * ONE CHANGE, ONE PRESS (Athena, on #129). The list offers one card for two pending proposals of the
@@ -117,5 +118,53 @@ describe("the dedupe key", () => {
     const otherChild = await card("k-child", { ...moveArgs(m, m.vans[0]), child_token: (await aMove(3)).token });
     const ids = (await confirmCards(db, SITE)).map((c) => c.approvalId);
     for (const id of [base, otherVan, otherLeg, otherDay, otherBucket, otherChild]) if (id) expect(ids).toContain(id);
+  });
+});
+
+/**
+ * A DEAD CARD NEVER HIDES A LIVE ONE (Veri). An earlier pending card for the same change that
+ * Approve would refuse — an agent card that names no board, or one whose last Approve the board
+ * refused — is not the twin the list keeps: the fresh card is offered and approvable, the dead one is not.
+ */
+describe("an earlier dead card for the same change", () => {
+  const dead = {
+    "names no board": async (key: string, m: { token: string; version: number }, van: string) => {
+      const { basis_version: _drop, ...args } = moveArgs(m, van);
+      return card(key, args);
+    },
+    "was refused by the board": async (key: string, m: { token: string; version: number }, van: string) => {
+      const id = await card(key, moveArgs(m, van));
+      await raiseNeedsPerson(db, {
+        siteId: SITE, messageId: null, reason: "refused", key: `approval:${id}:TEST`, approvalId: id, by: "staff:test",
+        refusal: { reason: "VAN_FULL", vanId: van, childToken: m.token, date: DATE, leg: "PM" } as never,
+      });
+      return id;
+    },
+  } as const;
+
+  describe.each(Object.keys(dead) as (keyof typeof dead)[])("that %s", (kind) => {
+    it("does not hide the fresh card: the fresh one is listed and approves, the dead one is not offered", async () => {
+      const m = await aMove(kind === "names no board" ? 4 : 3);
+      const old = await dead[kind](`dead-${kind}`, m, m.vans[0]);
+      const fresh = await card(`fresh-${kind}`, moveArgs(m, m.vans[0]));
+      const ids = (await confirmCards(db, SITE)).map((c) => c.approvalId);
+      expect(ids).toContain(fresh);
+      expect(ids).not.toContain(old);
+
+      const before = await snapshot();
+      expect((await confirmStaffAction(db, { userId: director, approvalId: old, decision: "APPROVED", now: NOW })).status).not.toBe(200);
+      expect(await snapshot()).toBe(before);
+
+      const r = await confirmStaffAction(db, { userId: director, approvalId: fresh, decision: "APPROVED", now: NOW });
+      expect(r, JSON.stringify(r.body)).toMatchObject({ status: 200 });
+      expect((await board()).version).toBe(m.version + 1);
+    });
+  });
+
+  it("is still offered when it is the only card for its change", async () => {
+    const m = await aMove(6);
+    const { basis_version: _drop, ...args } = moveArgs(m, m.vans[0]);
+    const only = await card("dead-alone", args);
+    expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(only);
   });
 });

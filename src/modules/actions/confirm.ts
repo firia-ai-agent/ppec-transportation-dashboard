@@ -20,7 +20,7 @@ import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/a
 import type { Db } from "@/db/exec";
 import { actionTool } from "@/modules/agent/action-tools";
 import { STAFF_ACTION_KIND } from "./confirm-view";
-import { STALE_PLAN_CARD_SQL, changeKey } from "./confirm-cards";
+import { DEAD_CARD_SQL, STALE_PLAN_CARD_SQL, changeKey, visibleOf } from "./confirm-cards";
 import { cardChild } from "./stale-notes";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
@@ -100,7 +100,7 @@ export async function confirmStaffAction(
    * scripted press on it can neither apply the change twice nor undo a Don't.
    */
   const twins = await pendingTwins(db, row);
-  if (twins.earlier.length > 0) return { status: 404, body: { ok: false, error: "NO_SUCH_CARD" } };
+  if (twins.hidden) return { status: 404, body: { ok: false, error: "NO_SUCH_CARD" } };
 
   const by = `staff:${req.userId}`;
   const claimed = await db.query<{ id: string }>(
@@ -169,23 +169,26 @@ export async function confirmStaffAction(
 }
 
 /**
- * The other pending cards for the same change as `row`, at its centre, split by whether the list
- * would offer them before it (same order as `confirmCards`: created_at, id).
+ * The other pending cards for the same change as `row`, at its centre, and whether the list hides
+ * `row` behind one of them (same choice as `confirmCards`: the first live card in created_at, id
+ * order, so a dead card never hides a live one). When `row` is the one offered, `later` is the rest.
  */
 async function pendingTwins(
   db: Db,
   row: { id: string; site_id: string; proposal: { tool?: string; args?: Record<string, unknown> } },
-): Promise<{ earlier: string[]; later: string[] }> {
+): Promise<{ hidden: boolean; later: string[] }> {
   const key = changeKey(String(row.proposal.tool ?? ""), row.proposal.args ?? {});
   const rows = (
-    await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; earlier: boolean }>(
-      `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args,
-              (a.created_at, a.id) < (SELECT b.created_at, b.id FROM ops.approval_request b WHERE b.id = $3) AS earlier
+    await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; dead: boolean }>(
+      `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, ${DEAD_CARD_SQL} AS dead
          FROM ops.approval_request a
-        WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2 AND a.id <> $3
-          AND a.proposal->>'tool' = $4 AND NOT ${STALE_PLAN_CARD_SQL}`,
+        WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2
+          AND a.proposal->>'tool' = $4 AND (a.id = $3 OR NOT ${STALE_PLAN_CARD_SQL})
+        ORDER BY a.created_at, a.id`,
       [row.site_id, STAFF_ACTION_KIND, row.id, String(row.proposal.tool ?? "")],
     )
-  ).rows.filter((r) => changeKey(r.tool ?? "", r.args ?? {}) === key);
-  return { earlier: rows.filter((r) => r.earlier).map((r) => r.id), later: rows.filter((r) => !r.earlier).map((r) => r.id) };
+  ).rows.filter((r) => r.id === row.id || changeKey(r.tool ?? "", r.args ?? {}) === key);
+  const visible = visibleOf(rows);
+  if (visible && visible.id !== row.id) return { hidden: true, later: [] };
+  return { hidden: false, later: rows.filter((r) => r.id !== row.id).map((r) => r.id) };
 }

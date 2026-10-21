@@ -9,6 +9,7 @@
  * many cards name it — never a writer, and never the action layer.
  */
 import type { Exec } from "@/db/exec";
+import { LIVE_ALERT_STATES_SQL, MODEL_UNAVAILABLE_CATEGORY } from "@/modules/agent/alert-task";
 import { STAFF_ACTION_KIND, type ConfirmView } from "./confirm-view";
 import { childFirstName } from "@/modules/identity/display-name";
 import { namedOrNull } from "@/modules/identity/names";
@@ -73,6 +74,29 @@ export function changeKey(tool: string, args: Record<string, unknown>): string {
   return `${tool}|${JSON.stringify(stable(args))}`;
 }
 
+/**
+ * A CARD APPROVE WILL NOT TAKE (Veri). Pending, not stale, but dead all the same: an agent's
+ * `save_plan` / `move_child` card that names no board (Approve refuses it, `confirm.ts`), or a card
+ * whose last Approve the board refused and that still has its "needs a person" open. One SQL
+ * predicate over `a`, shared by the list and by Approve's twin check.
+ */
+export const DEAD_CARD_SQL = `(
+  (a.proposal->>'tool' IN ('save_plan', 'move_child') AND COALESCE(a.created_by, '') LIKE 'agent:%'
+     AND jsonb_typeof(a.proposal->'args'->'basis_version') IS DISTINCT FROM 'number')
+  OR EXISTS (
+    SELECT 1 FROM ops.task t
+     WHERE t.site_id = a.site_id AND t.category = '${MODEL_UNAVAILABLE_CATEGORY}'
+       AND t.state IN (${LIVE_ALERT_STATES_SQL})
+       AND t.completion_evidence -> 'locator' ->> 'approval_id' = a.id::text))`;
+
+/**
+ * Which of several pending cards for one change the list offers: the first Approve would take, and
+ * only when none would, the first of the rest. A dead card never hides a live one.
+ */
+export function visibleOf<T extends { dead: boolean }>(cards: readonly T[]): T | undefined {
+  return cards.find((c) => !c.dead) ?? cards[0];
+}
+
 type Board = Awaited<ReturnType<typeof loadBoard>>;
 
 /**
@@ -103,22 +127,25 @@ async function cardNames(db: Exec, siteId: string, args: Record<string, unknown>
 }
 
 export async function confirmCards(db: Exec, siteId: string): Promise<readonly ConfirmView[]> {
-  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; note: string | null; summary: string | null; impact: string[] | null }>(
-    `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, a.proposal->>'note' AS note,
+  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; note: string | null; summary: string | null; impact: string[] | null; dead: boolean }>(
+    `SELECT a.id, ${DEAD_CARD_SQL} AS dead, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, a.proposal->>'note' AS note,
             a.proposal->>'summary' AS summary, a.proposal->'impact' AS impact FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2 AND NOT ${STALE_PLAN_CARD_SQL}
       ORDER BY a.created_at, a.id`,
     [siteId, STAFF_ACTION_KIND],
   );
   const boards = new Map<string, Promise<Board | null>>();
-  const seen = new Set<string>();
+  const byKey = new Map<string, (typeof rows.rows)[number][]>();
+  for (const r of rows.rows) {
+    const key = changeKey(r.tool ?? "", r.args ?? {});
+    byKey.set(key, [...(byKey.get(key) ?? []), r]);
+  }
+  const shown = new Set([...byKey.values()].map((group) => visibleOf(group)!.id));
   const cards: ConfirmView[] = [];
   for (const r of rows.rows) {
+    if (!shown.has(r.id)) continue;
     const tool = r.tool ?? "";
     const args = r.args ?? {};
-    const key = changeKey(tool, args);
-    if (seen.has(key)) continue;
-    seen.add(key);
     /*
      * A move says who moves and where: "Move Noah to Van 3, afternoon.",
      * built from this card's own stored arguments. It is preferred over the summary stored on the

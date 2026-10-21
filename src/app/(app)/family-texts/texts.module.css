@@ -576,6 +576,9 @@
   font: inherit;
   font-weight: var(--weight-medium);
   cursor: pointer;
+  /* A label is one line: "Don't move" never breaks to "Don't / move"; the row wraps as a whole. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .primary {
