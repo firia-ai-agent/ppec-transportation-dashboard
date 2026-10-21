@@ -24,7 +24,7 @@ export const legOf = (v: unknown): "AM" | "PM" | null => (v === "AM" || v === "P
 
 export function teamPlanChange(
   view: BoardView,
-  args: { readonly replan?: unknown; readonly moves?: unknown; readonly departures?: unknown },
+  args: { readonly auto_plan?: unknown; readonly replan?: unknown; readonly moves?: unknown; readonly departures?: unknown },
 ): { readonly change: PlanChange; readonly unknownVans: readonly string[] } {
   const unknownVans: string[] = [];
   const vanId = (name: unknown) => {
@@ -45,5 +45,7 @@ export function teamPlanChange(
     const id = vanId(d.van);
     if (id && typeof d.leaves === "string") departures[id] = d.leaves;
   }
-  return { change: { replan: args.replan === true, moves, departures }, unknownVans };
+  // The named Auto-plan (ledger #87); a stored card's legacy `replan: true` still reads as the fix.
+  const auto = args.auto_plan === "whole_leg" ? "WHOLE_LEG" : args.auto_plan === "fix_fit" || args.replan === true ? "FIX_FIT" : undefined;
+  return { change: { ...(auto ? { auto } : {}), moves, departures }, unknownVans };
 }

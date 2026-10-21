@@ -53,7 +53,10 @@ import { serviceDateIso } from "@/ui/service-date";
 import { familyScope, type FamilyScope } from "../policy";
 import { askTextOf } from "../ask/ask-text";
 import type { AssembleInput, AssembledContext } from "./context";
-import { tierPrompt } from "./context";
+import { tierPrompt, tierPromptBlocks } from "./context";
+import { planFacts } from "./plan-facts";
+import { actionDepsFor } from "@/modules/actions/deps";
+import { loadBoard } from "@/modules/plan/store";
 import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
 
 /**
@@ -128,6 +131,22 @@ export async function staffAskContext(
    * is named in T1 as what the person is following up on.
    */
   const following = opts.alert ? null : await alertBeforeAsk(db, siteId, ask.created_at);
+  /*
+   * THE BOARD, UP FRONT (ledger #87). Nearly every ask is about today's plan, and a run told to
+   * "look first" spent its turns reading it (and re-reading it). Both legs, in the words `get_plan`
+   * uses (`plan-facts.ts`), so the first turn can already act. A board that cannot be read is left
+   * out rather than failing the ask: `get_plan` is still there.
+   */
+  const boards = await Promise.all(
+    (["AM", "PM"] as const).map(async (leg) => {
+      try {
+        const deps = actionDepsFor(db, siteId);
+        return planFacts(await loadBoard(deps.store!, siteId, serviceDateIso(input.now), leg, deps.source));
+      } catch {
+        return null;
+      }
+    }),
+  );
 
   /*
    * The same dictionary `msg.inbound` builds, over the site's rows instead of one family's: the
@@ -177,8 +196,8 @@ export async function staffAskContext(
         : [
             `staff_ask="${say(askTextOf(ask.summary))}"`,
             ...(following ? [`following_up_on_alert="${say(following)}"`] : []),
-            "look_first=get_activity for what happened today, get_plan for the plan, get_waiting for cards and alerts",
-            "answer_with=reply_to_staff",
+            // Today's plan and what is waiting are below (T2); get_activity is there for what happened.
+            "answer_with=reply_to_staff, after drafting any card the ask needs",
           ]),
     ].join(" "),
     t2: [
@@ -195,6 +214,9 @@ export async function staffAskContext(
         (x) => `task=${t(x.id)} category=${x.category} severity=${x.severity} state=${x.state} says="${say(x.summary)}"`,
       ),
       ...cards.map((c) => `card=${t(c.id)} says="${say(c.summary).slice(0, 160)}"`),
+      ...boards.flatMap((b) =>
+        b === null ? [] : [`plan ${Object.entries(b).map(([k, v]) => `${k.replace(/\s+/g, "_")}="${say(String(v))}"`).join(" ")}`],
+      ),
     ].join("\n"),
     t3: recent.map((m) => say(m.body_tokenized)),
     t4: `channel=${FAMILY_SMS.channel}`,
@@ -225,6 +247,7 @@ export async function staffAskContext(
 
   return {
     prompt: tierPrompt(facts, input),
+    promptBlocks: tierPromptBlocks(facts, input),
     tokens,
     tools: opts.alert ? ALERT_TOOLS : STAFF_ASK_TOOLS,
     policy: {

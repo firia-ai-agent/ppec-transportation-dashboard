@@ -106,7 +106,7 @@ describe("a van confirmed short at the ramp is an alert, and the agent hears it 
       {
         db,
         gateway: createGateway(
-          fakeProvider([toolCall("get_plan", { leg: "PM" }), toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." })]),
+          fakeProvider([toolCall("get_plan", { leg: "PM" }), toolCall("propose_plan_change", { leg: "PM", auto_plan: "fix_fit", note: "Van 1 came back short, so one child moves." })]),
           loadAgentConfig(ENV),
           { now: () => NOW.getTime() },
         ),
@@ -199,7 +199,7 @@ describe("the bubble shows what the agent heard, and how it ended (ledger #75 b 
     expect((await confirmSeats(0)).status).toBe(200);
     const a = await latestAlert();
     const note = "Van 1 has no seats now, so re-planning the afternoon moves its riders to the other vans.";
-    const r = await drive(a.run_id, [toolCall("propose_plan_change", { leg: "PM", replan: true, note })]);
+    const r = await drive(a.run_id, [toolCall("propose_plan_change", { leg: "PM", auto_plan: "fix_fit", note })]);
     expect(r.state, JSON.stringify(r)).toBe("SUCCEEDED");
     expect((await itemsFor(a.task_id)).map((i) => ("id" in i ? i.id : ""))).toEqual([`${a.task_id}:alert`]);
     const cards = await confirmCards(db, SITE);
@@ -296,8 +296,11 @@ describe("a card closes the loop, steps aside when the board moved, and can be t
       runId: r.runId, trigger: { type: "staff.ask", id: r.taskId, siteId: SITE }, committed: [], now: new Date(),
     });
     expect(JSON.stringify(assembled.prompt)).toMatch(/following_up_on_alert=\\"Van 1 no longer fits/);
-    // It is told to look before answering, and is not handed internal leg states to repeat.
-    expect(assembled.prompt).toContain("look_first=get_activity");
+    // It is handed today's board up front rather than told to go and read it (ledger #87), and is
+    // not handed internal leg states to repeat.
+    expect(assembled.prompt).not.toContain("look_first=");
+    expect(assembled.prompt).toMatch(/^plan leg="AM" .*Van_1="leaves /m);
+    expect(assembled.prompt).toMatch(/^plan leg="PM" /m);
     expect(assembled.prompt).not.toMatch(/leg=\S+ child=\S+ part=\S+ state=/);
   });
 });

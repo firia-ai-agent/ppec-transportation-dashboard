@@ -404,7 +404,7 @@ export function remoteProvider(
   function requestBody(model: string, call: ProviderCall): Record<string, unknown> {
     return {
       model,
-      messages: [{ role: "user", content: call.prompt }],
+      messages: [{ role: "user", content: userContent(call) }],
       // §11.2 "JSON-schema tool calls only" — declared as functions, and required, so the model
       // cannot answer this turn with prose.
       tools: call.tools.map((t) => ({
@@ -442,6 +442,24 @@ function isAbort(e: unknown): boolean {
  * A well-formed response carrying prose and no tool call *is* returned, for the gateway to refuse
  * with REJECTED_FREE_TEXT. That is a model contract violation and it belongs in the audit log.
  */
+/**
+ * THE USER MESSAGE, CACHEABLE (ledger #87). With blocks, it is one text block per block, the first
+ * (the run's standing context and task) and the last (the newest result) marked `cache_control`, so
+ * a provider that caches — Anthropic, through OpenRouter — reads back everything but the newest
+ * results on the next turn. Tools sit before the message and are cached with it. Without blocks, the
+ * prompt as one string, exactly as before.
+ */
+export function userContent(call: Pick<ProviderCall, "prompt" | "promptBlocks">): string | Record<string, unknown>[] {
+  const blocks = call.promptBlocks;
+  if (!blocks || blocks.length === 0) return call.prompt;
+  return blocks.map((text, i) => ({
+    type: "text",
+    // The separator `prompt` has between blocks, kept on the block before it so the text is the same.
+    text: i < blocks.length - 1 ? `${text}\n` : text,
+    ...(i === 0 || i === blocks.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
+  }));
+}
+
 export function normalize(raw: unknown): ProviderResponseBody | null {
   if (typeof raw !== "object" || raw === null) return null;
   const choices = (raw as { choices?: unknown }).choices;
@@ -463,9 +481,14 @@ export function normalize(raw: unknown): ProviderResponseBody | null {
 
   // The OpenAI-shaped envelope's token counts, kept rather than thrown away (ledger #85).
   const usage = (raw as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } }).usage;
+  const cached = (usage as { prompt_tokens_details?: { cached_tokens?: unknown } } | undefined)?.prompt_tokens_details?.cached_tokens;
   const counted =
     typeof usage?.prompt_tokens === "number" && typeof usage?.completion_tokens === "number"
-      ? { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
+      ? {
+          inputTokens: usage.prompt_tokens,
+          outputTokens: usage.completion_tokens,
+          ...(typeof cached === "number" ? { cachedInputTokens: cached } : {}),
+        }
       : null;
 
   return {

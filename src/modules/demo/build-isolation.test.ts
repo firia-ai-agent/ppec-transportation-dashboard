@@ -39,6 +39,7 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/approvals/apply-dropoff.db.test.ts",
   "src/modules/availability/store.db.test.ts",
   "src/modules/actions/stale-card.db.test.ts",
+  "src/modules/agent/ask/steps.db.test.ts",
   "src/modules/actions/stale-notes.db.test.ts",
   "src/modules/messaging/eta-notice-sweep.test.ts",
   // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).

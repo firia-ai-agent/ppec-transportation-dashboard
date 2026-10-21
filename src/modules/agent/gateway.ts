@@ -25,7 +25,7 @@ import {
 } from "./config";
 import type { LlmProvider, ProviderResponseBody, TokenUsage } from "./providers/provider";
 import { redact, sha256Hex } from "./redact";
-import { type ToolTier, TOOL_NAMES, toolDeclarations, toolDef } from "./tools";
+import { type ToolTier, TOOL_NAMES, TRIAGE_TOOL, toolDeclarations, toolDef } from "./tools";
 
 /* ────────────────────────────────── audit (hashes only) ────────────────────────────────── */
 
@@ -74,6 +74,8 @@ export type GatewayRequest = {
   readonly runId: string;
   /** Fully assembled, already-tokenized prompt. Validated here before it goes anywhere. */
   readonly prompt: string;
+  /** The same prompt as cacheable blocks (`tierPromptBlocks`). Ignored unless they join to `prompt`. */
+  readonly promptBlocks?: readonly string[];
   /** Tools offered for this turn. Defaults to the whole catalog; every name must be in it. */
   readonly tools?: readonly string[];
   /** Required when `dataMode` is PHI (§11.2). Ignored — but still validated — otherwise. */
@@ -93,13 +95,22 @@ export type AcceptedToolCall = {
 };
 
 export type GatewayResult = {
+  /** The first call — the only one, unless every call this turn is a read (`calls`). */
   readonly call: AcceptedToolCall;
+  /** Every call this turn, in the model's order: one, or several reads (ledger #87). */
+  readonly calls: readonly AcceptedToolCall[];
   readonly promptHash: string;
   readonly responseHash: string;
   readonly audit: AgentAuditRecord;
   /** Token counts for the turn, when the provider reported them (ledger #85). */
   readonly usage?: TokenUsage;
 };
+
+/** A call that may share a turn: a side-effect-free read that neither answers nor triages. */
+export function isBatchableRead(name: string): boolean {
+  const def = toolDef(name);
+  return def?.effect === "read" && name !== "reply_to_staff" && name !== TRIAGE_TOOL;
+}
 
 export class GatewayError extends Error {
   constructor(
@@ -272,6 +283,9 @@ export function createGateway(
           zdr: config.zdr,
           dataMode,
           prompt: request.prompt,
+          // Blocks are only passed when they are this exact prompt: the hash and the guard above
+          // describe `prompt`, and a cache must never be fed anything else.
+          ...(request.promptBlocks && request.promptBlocks.join("\n") === request.prompt ? { promptBlocks: request.promptBlocks } : {}),
           tools: toolDeclarations(names),
           promptHash,
         });
@@ -289,34 +303,42 @@ export function createGateway(
       if (calls.length === 0) {
         reject(audited, "REJECTED_FREE_TEXT", "response carried no tool call (free text is not an answer)", { responseHash });
       }
-      if (calls.length > 1) {
-        // §11.1 persists tool calls before execution, one at a time; a batch has no idempotency key.
-        reject(audited, "REJECTED_MULTIPLE_CALLS", `response carried ${calls.length} tool calls, expected 1`, { responseHash });
+      /*
+       * SEVERAL READS AT ONCE ARE FINE (ledger #87). §11.1 persists every call before it executes, and
+       * the loop still writes one row per call, in order — so a turn of side-effect-free reads keeps
+       * that guarantee. Anything that writes, answers or triages stays one call per turn.
+       */
+      if (calls.length > 1 && !calls.every((c) => isBatchableRead(c.name))) {
+        reject(audited, "REJECTED_MULTIPLE_CALLS", `response carried ${calls.length} tool calls, expected 1 unless every one is a read`, { responseHash });
       }
-      const raw = calls[0];
-      const def = toolDef(raw.name);
-      if (!def) {
-        reject(audited, "REJECTED_UNKNOWN_TOOL", `model called unknown tool ${JSON.stringify(raw.name)}`, { responseHash });
-      }
-      if (!names.includes(def.name)) {
-        reject(audited, "REJECTED_UNKNOWN_TOOL", `tool ${def.name} was not offered this turn`, { responseHash, tool: def.name });
-      }
-      const parsedArgs = def.schema.safeParse(coerceArgs(raw.arguments));
-      if (!parsedArgs.success) {
-        // Argument *names* and messages only: a rejected value may be the thing we refuse to log.
-        const detail = parsedArgs.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.code}`).join("; ");
-        reject(audited, "REJECTED_INVALID_ARGS", `tool ${def.name} args rejected [${detail}]`, { responseHash, tool: def.name });
+      const accepted: AcceptedToolCall[] = [];
+      for (const raw of calls) {
+        const def = toolDef(raw.name);
+        if (!def) {
+          reject(audited, "REJECTED_UNKNOWN_TOOL", `model called unknown tool ${JSON.stringify(raw.name)}`, { responseHash });
+        }
+        if (!names.includes(def.name)) {
+          reject(audited, "REJECTED_UNKNOWN_TOOL", `tool ${def.name} was not offered this turn`, { responseHash, tool: def.name });
+        }
+        const parsedArgs = def.schema.safeParse(coerceArgs(raw.arguments));
+        if (!parsedArgs.success) {
+          // Argument *names* and messages only: a rejected value may be the thing we refuse to log.
+          const detail = parsedArgs.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.code}`).join("; ");
+          reject(audited, "REJECTED_INVALID_ARGS", `tool ${def.name} args rejected [${detail}]`, { responseHash, tool: def.name });
+        }
+        accepted.push({ tool: def.name, tier: def.tier, args: parsedArgs.data as Record<string, unknown> });
       }
 
       const audit = record({
         ...audited,
         outcome: "ACCEPTED",
         responseHash,
-        tool: def.name,
-        tier: def.tier,
+        tool: accepted.map((c) => c.tool).join(","),
+        tier: accepted[0].tier,
       });
       return {
-        call: { tool: def.name, tier: def.tier, args: parsedArgs.data as Record<string, unknown> },
+        call: accepted[0],
+        calls: accepted,
         promptHash,
         responseHash,
         audit,

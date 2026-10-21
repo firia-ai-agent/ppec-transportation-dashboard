@@ -40,6 +40,7 @@ import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
 import { GatewayError, type GatewayOutcome, type LlmGateway, type GatewayResult } from "../gateway";
 import { type PolicyContext, type PolicyDecision, evaluate } from "../policy";
+import { toolDef } from "../tools";
 import { resolveScopeTokens, type ScopeTokens } from "./scope-tokens";
 import type { ContextAssembler } from "./context";
 import type { ProposalWriter } from "./exec/proposals";
@@ -278,7 +279,7 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     if (wrongSite) return fail(deps, run, wrongSite, steps);
     let turn: GatewayResult;
     try {
-      turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools, maxCalls: maxSteps });
+      turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, promptBlocks: assembled.promptBlocks, tools: assembled.tools, maxCalls: maxSteps });
     } catch (e) {
       if (deps.isFatal?.(e)) throw e;
       // "The model is unavailable" is not the same failure as "the model answered and we refused
@@ -306,6 +307,8 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     }
     await recordPromptHash(deps.db, runId, turn.promptHash, actor);
     await addRunTokens(deps.db, runId, turn.usage, actor);
+    // What the turn cost and how much of it came from the provider's cache (ledger #87): counts only.
+    if (turn.usage) console.info(`[agent:usage] run=${runId} in=${turn.usage.inputTokens} cached=${turn.usage.cachedInputTokens ?? 0} out=${turn.usage.outputTokens}`);
 
     /*
      * The model answers in the labels the prompt gave it (`run/scope-tokens.ts`): "C2", "L-C2-PM".
@@ -314,16 +317,21 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
      * speak one language — the database's. A label this run does not hold resolves to nothing and
      * is left exactly as written, which is what gets it refused for being out of scope.
      */
-    const call = resolvedCall(turn, assembled.tokens);
-    const decision = evaluate(call, assembled.policy);
-    const row = await persistCallFor(deps, run, calls.length, { ...turn, call }, decision);
-    steps += 1;
+    // One call, or several reads (ledger #87): each is its own row, persisted before it runs and
+    // settled in the model's order, so resume and idempotency are the single call's, call by call.
+    // A batch never takes the run past its step budget.
+    for (const accepted of (turn.calls ?? [turn.call]).slice(0, maxSteps - calls.length)) {
+      const call = resolvedCall({ ...turn, call: accepted }, assembled.tokens);
+      const decision = evaluate(call, assembled.policy);
+      const row = await persistCallFor(deps, run, calls.length, { ...turn, call }, decision);
+      steps += 1;
 
-    // Nothing above this line executed anything; nothing below it runs without that row committed.
-    const outcome = await settleCall(deps, run, row, committed, at);
-    const finished = await finish(deps, run, outcome, steps);
-    if (finished) return finished;
-    calls = await toolCalls(deps.db, runId);
+      // Nothing above this line executed anything; nothing below it runs without that row committed.
+      const outcome = await settleCall(deps, run, row, committedCalls(calls), at);
+      const finished = await finish(deps, run, outcome, steps);
+      if (finished) return finished;
+      calls = await toolCalls(deps.db, runId);
+    }
   }
 
   return fail(deps, run, `step budget of ${maxSteps} tool calls exhausted`, steps);
@@ -583,6 +591,17 @@ async function settleCall(
     return TALKS_AFTER_A_CARD.has(run.trigger.type) ? { kind: "continue" } : { kind: "done" };
   }
 
+  /*
+   * A READ THE RUN ALREADY MADE (ledger #87). Prod read today's activity six times in a row and got
+   * the same empty answer each time. The same read with the same arguments, with nothing written
+   * since, is answered by pointing at the first one instead of running it again.
+   */
+  const repeat = repeatedRead(row, committed);
+  if (repeat !== null) {
+    const ok = await commitCall(deps.db, row.id, "EXECUTED", { prompt_facts: { same_as_seq: repeat, hint: "you_already_have_this_act_on_it" } }, by);
+    return ok ? { kind: "continue" } : lost(row);
+  }
+
   const executor = deps.executors[row.tool];
   if (!executor) {
     await commitCall(deps.db, row.id, "FAILED", { error_code: "NO_EXECUTOR" }, by);
@@ -772,6 +791,25 @@ async function move(deps: RunDeps, run: RunRow, to: RunState, steps: number, rea
     runId: run.id, created: false, state: fresh?.state ?? run.state, steps,
     reason: `run moved on before this driver could mark it ${to}`,
   };
+}
+
+/**
+ * The seq of an earlier, identical read this call would only repeat — the same tool and arguments
+ * (`argsHash` is `approvalKey(tool, args)`), executed, with no write committed after it — or null.
+ * Only side-effect-free reads, and never `reply_to_staff`, whose every call is an answer.
+ */
+function repeatedRead(row: ToolCallRow, committed: readonly CommittedCall[]): number | null {
+  if (toolDef(row.tool)?.effect !== "read" || row.tool === "reply_to_staff") return null;
+  for (let i = committed.length - 1; i >= 0; i--) {
+    const c = committed[i];
+    const wrote = c.status === "EXECUTED" && toolDef(c.tool)?.effect !== "read";
+    if (wrote) return null;
+    if (c.status === "EXECUTED" && c.tool === row.tool && c.argsHash === row.argsHash) {
+      const first = c.promptFacts.same_as_seq;
+      return typeof first === "number" ? first : c.seq;
+    }
+  }
+  return null;
 }
 
 /** The gateway refusals a model can correct by trying again, and what to tell it. */

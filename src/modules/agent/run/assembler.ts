@@ -59,7 +59,7 @@ import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/mod
 import { serviceDateIso } from "@/ui/service-date";
 import { familyScope, type FamilyScope } from "../policy";
 import type { AssembleInput, AssembledContext, ContextAssembler, TierFacts } from "./context";
-import { tierPrompt } from "./context";
+import { tierPrompt, tierPromptBlocks } from "./context";
 import { legStopToken } from "./exec/proposals";
 import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
 import { staffAskContext } from "./staff-ask-context";
@@ -217,6 +217,7 @@ export function dbContextAssembler(
 
     return {
       prompt: tierPrompt(facts, input),
+      promptBlocks: tierPromptBlocks(facts, input),
       tokens,
       // A family's text is never offered a staff member's tools (ledger #74): no action a person
       // takes in the UI, no read of the whole board. One read is theirs (ledger #79): their own

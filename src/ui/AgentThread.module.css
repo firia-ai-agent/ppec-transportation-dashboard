@@ -124,3 +124,14 @@
     padding: var(--space-4) var(--space-4) var(--space-3);
   }
 }
+
+/*
+ * A step the agent is taking while it works (ledger #87): a quiet line in the meta tone, aligned with
+ * the agent's bubbles but not one of them — it is a note about what is happening, not something said.
+ */
+.step {
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}

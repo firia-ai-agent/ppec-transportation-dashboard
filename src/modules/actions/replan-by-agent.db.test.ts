@@ -101,7 +101,7 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
     const before = await board();
     const r = await ask(people.director, "replan the afternoon", [
       toolCall("get_plan", { leg: "PM" }),
-      toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." }),
+      toolCall("propose_plan_change", { leg: "PM", auto_plan: "fix_fit", note: "Van 1 came back short, so one child moves." }),
       toolCall("reply_to_staff", { summary: "I've drafted a re-plan so every van fits. Approve it to save." }),
     ]);
     expect(r.outcome === "ran" && r.answer).toBe("I've drafted a re-plan so every van fits. Approve it to save.");
@@ -210,7 +210,7 @@ describe("the agent can only do what the asker's role can (S4)", () => {
     const before = await board();
     const cards = (await confirmCards(db, SITE)).length;
     const r = await ask(people.frontDesk, "replan the afternoon", [
-      toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Re-plan so every van fits." }),
+      toolCall("propose_plan_change", { leg: "PM", auto_plan: "fix_fit", note: "Re-plan so every van fits." }),
       toolCall("reply_to_staff", { summary: "A coordinator or the director needs to approve a re-plan." }),
     ]);
     if (r.outcome !== "ran") throw new Error(r.outcome);

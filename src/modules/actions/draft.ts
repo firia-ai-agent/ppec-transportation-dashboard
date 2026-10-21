@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { effectId, raiseTask } from "@/modules/agent/run/exec/effects";
-import { previewPlanChange, type PlanChange } from "@/modules/changes/plan-change";
+import { autoPlanMode, previewPlanChange, type PlanChange } from "@/modules/changes/plan-change";
 import { rehearsePlanSave } from "@/modules/changes/rehearse";
 import type { Refusal } from "@/modules/changes/refusal";
 import { loadBoard } from "@/modules/plan/store";
@@ -154,7 +154,14 @@ export async function draftPlanChange(
     // `basis_version`: the board this card was drafted on. A save past it makes the card stale (by
     // version, not by clock — a save's `now()` is its transaction's start), and Approve saves against it.
     args: { date: a.date, leg: a.leg, moves: preview.moves, ...(leaves.length > 0 ? { departures } : {}), basis_version: view.version },
-    summary: fill(change.replan && !change.moves?.length && leaves.length === 0 ? replanDraft.title : replanDraft.changeTitle, { leg: LEG_WORDS[a.leg] }),
+    // The card says which Auto-plan it is (ledger #87): "Plan the morning" from scratch, "Re-plan the
+    // morning" for the smallest fix, and "Change the morning plan" for moves somebody named.
+    summary: fill(
+      !change.moves?.length && leaves.length === 0
+        ? autoPlanMode(change) === "WHOLE_LEG" ? replanDraft.planTitle : autoPlanMode(change) === "FIX_FIT" ? replanDraft.title : replanDraft.changeTitle
+        : replanDraft.changeTitle,
+      { leg: LEG_WORDS[a.leg] },
+    ),
     note: a.note,
     impact: preview.lines,
   });
