@@ -18,6 +18,8 @@ import { TextsScreen } from "./TextsScreen";
 import { demoControlsGate } from "@/modules/demo/gate";
 import { confirmCards } from "@/modules/actions/confirm-cards";
 import { confirmPanel } from "@/ui/panel";
+import { staleNotes } from "@/modules/actions/stale-notes";
+import { dismissStaleNoteAction, openStaleNotePlanRoutesAction } from "@/app/(app)/confirm/actions";
 import { phonesForDay, threadFor } from "./thread";
 
 export const metadata = { title: familyTexts.documentTitle };
@@ -178,6 +180,8 @@ export default async function FamilyTextsPage({
       showForYouTab={mayApprove}
       /* A demo control (ledger #78): only where the demo controls are on, for the roles it serves. */
       changes={mayApprove ? (await readChanges(siteOf(caller))).map(confirmPanel) : []}
+      staleNotes={mayApprove ? await readStaleNotes(siteOf(caller)) : []}
+      staleNoteActions={{ dismiss: dismissStaleNoteAction, open: openStaleNotePlanRoutesAction }}
       simulate={mayApprove && demoControlsGate(process.env).allowed ? phones.map((p) => ({ key: p.childKey, label: p.childLabel })) : null}
     />
   );
@@ -226,6 +230,15 @@ async function readQueue(
   if (siteIds.length === 0) return [];
   try {
     return await approvalQueue({ db: getExec(), siteIds, day });
+  } catch {
+    return [];
+  }
+}
+
+/** Stale agent plan cards' notes (Vera, #124), failing soft like the rest. */
+async function readStaleNotes(siteId: string) {
+  try {
+    return await staleNotes(getExec(), siteId);
   } catch {
     return [];
   }

@@ -7,6 +7,8 @@ import { icon } from "@/ui/tokens";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { Composer } from "./Composer";
 import { AgentPanel } from "@/ui/AgentPanel";
+import { StaleNote } from "@/ui/StaleNote";
+import type { StaleNoteAction, StaleNoteView } from "@/modules/actions/confirm-view";
 import { replyPanel, type PanelView } from "@/ui/panel";
 import { ThreadEnd } from "./ThreadEnd";
 import { ROW_STATES } from "./row-state";
@@ -48,6 +50,8 @@ export function TextsScreen({
   showForYouTab,
   simulate = null,
   changes = [],
+  staleNotes = [],
+  staleNoteActions = null,
 }: {
   readonly tab: TabKey;
   readonly rows: readonly ConversationRow[];
@@ -81,6 +85,9 @@ export function TextsScreen({
   readonly simulate?: readonly SimulateOption[] | null;
   /** Changes to the day waiting for a person, as the one agent panel (ledger #79). */
   readonly changes?: readonly PanelView[];
+  /** Stale agent plan cards, each as its note (Vera, #124): no Approve, until dismissed or opened. */
+  readonly staleNotes?: readonly StaleNoteView[];
+  readonly staleNoteActions?: { readonly dismiss: StaleNoteAction; readonly open: StaleNoteAction } | null;
 }) {
   const forYou = tab === "for-you" && showForYouTab;
   return (
@@ -111,8 +118,8 @@ export function TextsScreen({
             aria-current={key === tab ? "page" : undefined}
           >
             {TAB_LABELS[key]}
-            {countFor(key, rows.length, proposals.length + changes.length, alerts.length) === null ? null : (
-              <span className={styles.tabCount}>{countFor(key, rows.length, proposals.length + changes.length, alerts.length)}</span>
+            {countFor(key, rows.length, proposals.length + changes.length + staleNotes.length, alerts.length) === null ? null : (
+              <span className={styles.tabCount}>{countFor(key, rows.length, proposals.length + changes.length + staleNotes.length, alerts.length)}</span>
             )}
           </Link>
         ))}
@@ -151,7 +158,10 @@ export function TextsScreen({
             */}
           {/* A change to the day is the same panel the bubble shows, decided here or there (ledger #79). */}
           {forYou ? changes.map((panel) => <AgentPanel key={panel.id} panel={panel} />) : null}
-          {forYou && proposals.length === 0 && changes.length === 0 && alerts.length === 0 && !alertsUnreadable ? (
+          {forYou && staleNoteActions
+            ? staleNotes.map((note) => <StaleNote key={note.approvalId} note={note} dismiss={staleNoteActions.dismiss} open={staleNoteActions.open} />)
+            : null}
+          {forYou && proposals.length === 0 && changes.length === 0 && staleNotes.length === 0 && alerts.length === 0 && !alertsUnreadable ? (
             <p className={styles.empty}>{approval.none}</p>
           ) : null}
           <ConversationList rows={rows} tab={tab} openKey={thread?.key ?? null} />

@@ -16,6 +16,11 @@ import { getNeonDb } from "@/db/exec";
 import { confirmStaffAction, type ConfirmDecision } from "@/modules/actions/confirm";
 import { confirmCopy } from "@/ui/copy";
 import { refusalWords } from "@/modules/changes/refusal";
+import { redirect } from "next/navigation";
+import { canOpenForYou } from "@/auth/access";
+import { siteOf } from "@/modules/plan/api";
+import { clearStaleNote } from "@/modules/actions/stale-notes";
+import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 
 import type { ConfirmState } from "@/modules/actions/confirm-view";
 export type { ConfirmAction, ConfirmState } from "@/modules/actions/confirm-view";
@@ -48,4 +53,22 @@ export async function confirmStaffActionAction(_previous: ConfirmState, form: Fo
   }
   for (const path of CHANGED) revalidatePath(path);
   return { status: "done", decision: answer.body.decision };
+}
+
+/** A stale card's note on For you, dismissed (Vera, #124). A POST: a render never clears one. */
+export async function dismissStaleNoteAction(form: FormData): Promise<void> {
+  const caller = await getCaller();
+  if (caller.kind !== "STAFF" || !caller.userId || !canOpenForYou(caller)) return;
+  await clearStaleNote(getNeonDb(), { siteId: siteOf(caller), approvalId: String(form.get("card") ?? ""), userId: caller.userId, how: "DISMISSED", now: new Date() });
+  revalidatePath("/family-texts");
+}
+
+/** Open Plan routes from a stale card's note: the note is cleared, then Plan routes opens. */
+export async function openStaleNotePlanRoutesAction(form: FormData): Promise<void> {
+  const caller = await getCaller();
+  if (caller.kind === "STAFF" && caller.userId && canOpenForYou(caller)) {
+    await clearStaleNote(getNeonDb(), { siteId: siteOf(caller), approvalId: String(form.get("card") ?? ""), userId: caller.userId, how: "OPENED_PLAN_ROUTES", now: new Date() });
+    revalidatePath("/family-texts");
+  }
+  redirect(PLAN_ROUTES_PATH);
 }

@@ -3335,6 +3335,8 @@ export const replanDraft = {
 
 export const confirmCopy = {
   heading: "Confirm a change",
+  /** The note a stale agent plan card leaves on For you (Vera, #124): its line is `refusal.says.STALE_CARD`. */
+  staleNoteDismiss: "Dismiss",
   confirm: "Approve",
   dontDo: "Don't",
   pending: "Nothing happens until you approve.",

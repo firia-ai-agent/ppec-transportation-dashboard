@@ -21,6 +21,7 @@ import type { Db } from "@/db/exec";
 import { actionTool } from "@/modules/agent/action-tools";
 import { STAFF_ACTION_KIND } from "./confirm-view";
 import { STALE_PLAN_CARD_SQL } from "./confirm-cards";
+import { cardChild } from "./stale-notes";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
 import { confirmCopy } from "@/ui/copy";
@@ -43,13 +44,6 @@ export type ConfirmAnswer =
 
 /** The agent's plan cards that must carry `basis_version` (PPE-112). */
 const AGENT_PLAN_TOOLS: ReadonlySet<string> = new Set(["save_plan", "move_child"]);
-
-/** The child a plan card is about: `move_child`'s, or a `save_plan`'s first move's. */
-function cardChild(args: Record<string, unknown>): string | null {
-  if (typeof args.child_token === "string") return args.child_token;
-  const first = Array.isArray(args.moves) ? (args.moves[0] as { child_token?: unknown } | undefined) : undefined;
-  return typeof first?.child_token === "string" ? first.child_token : null;
-}
 
 export async function confirmStaffAction(
   db: Db,
