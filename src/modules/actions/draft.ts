@@ -151,7 +151,9 @@ export async function draftPlanChange(
     by: a.by,
     tool: "save_plan",
     action: "save_plan",
-    args: { date: a.date, leg: a.leg, moves: preview.moves, ...(leaves.length > 0 ? { departures } : {}) },
+    // `basis_version`: the board this card was drafted on. A save past it makes the card stale (by
+    // version, not by clock — a save's `now()` is its transaction's start), and Approve saves against it.
+    args: { date: a.date, leg: a.leg, moves: preview.moves, ...(leaves.length > 0 ? { departures } : {}), basis_version: view.version },
     summary: fill(change.replan && !change.moves?.length && leaves.length === 0 ? replanDraft.title : replanDraft.changeTitle, { leg: LEG_WORDS[a.leg] }),
     note: a.note,
     impact: preview.lines,

@@ -13,6 +13,19 @@ export type ConfirmView = {
   readonly impact: readonly string[];
 };
 
+/**
+ * A stale agent plan card, as the note For you shows in its place (Vera, #124): the refusal's own
+ * line and its Plan routes link. No Approve — the card cannot be approved.
+ */
+export type StaleNoteView = {
+  readonly approvalId: string;
+  readonly says: string;
+  readonly fix: { readonly label: string; readonly href: string };
+};
+
+/** What the note's two buttons run: Dismiss, and Open Plan routes (which clears it, then goes). */
+export type StaleNoteAction = (form: FormData) => Promise<void>;
+
 /** What a confirm press answers with, for the panel (a leaf, so client code can name it). */
 export type ConfirmState =
   | { readonly status: "idle" }

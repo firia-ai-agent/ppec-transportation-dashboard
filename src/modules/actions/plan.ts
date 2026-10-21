@@ -111,13 +111,15 @@ export const PLAN_ACTIONS = {
       childToken: z.string().min(1).max(64),
       bucket: z.enum(BUCKETS),
       vanId: z.string().min(1).max(64).nullable().optional(),
+      // The board a card was drafted on (PPE-110): a save past it is the board's CHANGED, never a move over it.
+      version: z.number().int().min(0).optional(),
     }),
     confirm: false,
     describe: (i) => fill(actionSummaries.moveChild, { leg: i.direction }),
     run: async (ctx, i) => {
       const view = await boardFor(ctx, i.date, i.direction);
       const move = { childToken: i.childToken, bucket: i.bucket, vanId: i.bucket === "VAN" ? (i.vanId ?? null) : null };
-      return save(ctx, { date: i.date, direction: i.direction, version: view.version, moves: [move] });
+      return save(ctx, { date: i.date, direction: i.direction, version: i.version ?? view.version, moves: [move] });
     },
   }),
   /** One child's placement, written at once (the board's single-move endpoint). */

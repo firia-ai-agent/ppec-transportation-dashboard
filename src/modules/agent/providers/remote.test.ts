@@ -364,6 +364,8 @@ describe("outbound request", () => {
     await remoteProvider(DEMO, KEY_ENV).invoke(call());
     const body = bodyOf(0);
     expect(body.tool_choice).toBe("required");
+    // Not sent (PPE-109): with `require_parameters` it could leave no endpoint; the gateway enforces one call.
+    expect(body).not.toHaveProperty("parallel_tool_calls");
     expect(body.tools.map((t: { function: { name: string } }) => t.function.name)).toEqual([
       "get_leg_state",
       "cancel_attendance_or_leg",

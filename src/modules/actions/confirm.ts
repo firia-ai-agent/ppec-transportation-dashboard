@@ -20,6 +20,8 @@ import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/a
 import type { Db } from "@/db/exec";
 import { actionTool } from "@/modules/agent/action-tools";
 import { STAFF_ACTION_KIND } from "./confirm-view";
+import { STALE_PLAN_CARD_SQL } from "./confirm-cards";
+import { cardChild } from "./stale-notes";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
 import { confirmCopy } from "@/ui/copy";
@@ -40,6 +42,9 @@ export type ConfirmAnswer =
       readonly body: { readonly ok: false; readonly error: "SIGN_IN" | "NOT_YOUR_ROLE" | "NO_SUCH_CARD" | "ALREADY_DECIDED" | "ACTION_REFUSED"; readonly reason?: string; readonly refusal?: Refusal };
     };
 
+/** The agent's plan cards that must carry `basis_version` (PPE-112). */
+const AGENT_PLAN_TOOLS: ReadonlySet<string> = new Set(["save_plan", "move_child"]);
+
 export async function confirmStaffAction(
   db: Db,
   req: { readonly userId?: string; readonly approvalId: string; readonly decision: ConfirmDecision; readonly now: Date },
@@ -48,9 +53,9 @@ export async function confirmStaffAction(
 ): Promise<ConfirmAnswer> {
   if (!req.userId) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
   const row = (
-    await db.query<{ id: string; site_id: string; task_id: string; proposal: { kind?: string; tool?: string; args?: Record<string, unknown> } }>(
-      `SELECT id, site_id, task_id, proposal FROM ops.approval_request
-        WHERE id = $1 AND decided_at IS NULL AND proposal->>'kind' = $2`,
+    await db.query<{ id: string; site_id: string; task_id: string; created_by: string | null; stale: boolean; proposal: { kind?: string; tool?: string; args?: Record<string, unknown> } }>(
+      `SELECT a.id, a.site_id, a.task_id, a.created_by, a.proposal, ${STALE_PLAN_CARD_SQL} AS stale FROM ops.approval_request a
+        WHERE a.id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2`,
       [/^[0-9a-f-]{36}$/i.test(req.approvalId) ? req.approvalId : null, STAFF_ACTION_KIND],
     )
   ).rows[0];
@@ -68,6 +73,25 @@ export async function confirmStaffAction(
     if (e instanceof SiteNotFound) return { status: 404, body: { ok: false, error: "NO_SUCH_CARD" } };
     if (e instanceof Forbidden) return { status: 403, body: { ok: false, error: "NOT_YOUR_ROLE" } };
     throw e;
+  }
+
+  /*
+   * A PLAN CARD IS JUDGED AT APPROVE AS THE LIST JUDGES IT (PPE-112): one the board has moved past
+   * is refused by id too, never applied over the newer save. And an agent's `save_plan` /
+   * `move_child` card must name the board it was written on — without a numeric `basis_version`
+   * Approve would read the version now and write over whatever was saved since, so it is refused.
+   * Nothing is claimed; a move a person makes on the board itself never comes through here.
+   */
+  if (req.decision === "APPROVED") {
+    const agentPlanCard = AGENT_PLAN_TOOLS.has(tool.name) && (row.created_by ?? "").startsWith("agent:");
+    if (row.stale || (agentPlanCard && typeof row.proposal.args?.basis_version !== "number")) {
+      const args = row.proposal.args ?? {};
+      const at = { date: String(args.date ?? serviceDateIso(req.now)), leg: args.leg === "AM" ? ("AM" as const) : ("PM" as const) };
+      const board = await loadBoard(ctx.deps!.store!, row.site_id, at.date, at.leg, ctx.deps!.source).catch(() => null);
+      const refusal = refusalOf({ reason: "STALE_CARD", vanId: null, childToken: cardChild(args) }, at, board);
+      console.warn(refusalLogLine("confirm", refusal), row.stale ? "stale" : "no-basis");
+      return { status: 422, body: { ok: false, error: "ACTION_REFUSED", reason: refusal.reason, refusal } };
+    }
   }
 
   const by = `staff:${req.userId}`;
