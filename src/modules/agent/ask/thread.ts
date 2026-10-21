@@ -24,6 +24,7 @@ import type { AgentThreadItem } from "@/ui/AgentThread";
 import { agentRetryConfig } from "@/config/live";
 import { agentBubble, confirmCopy, fill } from "@/ui/copy";
 import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
+import { staleCardWords } from "@/modules/actions/stale-notes";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
 import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
@@ -81,16 +82,27 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
    */
   const closed = await db.query<{ id: string; outcome: string | null; at: Date }>(
     `SELECT a.id, a.proposal->>'outcome' AS outcome, a.decided_at AS at FROM ops.approval_request a
-      WHERE a.site_id = $1 AND a.decided_at IS NOT NULL AND a.proposal->>'outcome' IS NOT NULL
-     UNION ALL
-     SELECT a.id, NULL, a.created_at FROM ops.approval_request a
+      WHERE a.site_id = $1 AND a.decided_at IS NOT NULL
+        AND (a.proposal->>'outcome' IS NOT NULL OR a.proposal->>'kind' = 'STAFF_ACTION')`,
+    [siteId],
+  );
+  // "Already handled" is for a card somebody decided. A stale card nobody decided says what happened
+  // — the plan changed after it was written — and where to look (Vera, #124), as For you's note does.
+  const stale = await db.query<{ id: string; args: Record<string, unknown> | null; at: Date }>(
+    `SELECT a.id, a.proposal->'args' AS args, a.created_at AS at FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
     [siteId],
   );
-  const endings = closed.rows.map((r) => ({
-    at: r.at,
-    item: { kind: "agent", id: `${r.id}:done`, text: r.outcome ?? confirmCopy.alreadyHandled } as AgentThreadItem,
-  }));
+  const endings = [
+    ...closed.rows.map((r) => ({
+      at: r.at,
+      item: { kind: "agent", id: `${r.id}:done`, text: r.outcome ?? confirmCopy.alreadyHandled } as AgentThreadItem,
+    })),
+    ...(await Promise.all(stale.rows.map(async (r) => {
+      const words = await staleCardWords(db, siteId, r.args ?? {});
+      return { at: r.at, item: { kind: "agent", id: `${r.id}:done`, text: words.says, link: { href: words.fix.href, label: words.fix.label } } as AgentThreadItem };
+    }))),
+  ];
   const changes = await db.query<{ id: string; summary: string | null; at: Date }>(
     `SELECT id, payload->>'claim_summary' AS summary, created_at AS at
        FROM ops.change_request WHERE site_id = $1 AND status = 'NEEDS_HUMAN' ORDER BY created_at, id`,

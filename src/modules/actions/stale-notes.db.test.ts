@@ -12,6 +12,8 @@ import { actionDepsFor } from "./deps";
 import { writeStaffActionCard } from "./draft";
 import { ACTIONS, type ActionCtx } from "./registry";
 import { clearStaleNote, staleNotes } from "./stale-notes";
+import { readAgentThread } from "@/modules/agent/ask/thread";
+import { confirmCopy } from "@/ui/copy";
 
 /**
  * A STALE AGENT PLAN CARD DOES NOT VANISH (Vera, #124): it leaves a note on For you until the
@@ -88,5 +90,26 @@ describe("a stale agent plan card on For you (Vera, #124)", () => {
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(live);
     for (const n of await staleNotes(db, SITE)) await clearStaleNote(db, { siteId: SITE, approvalId: n.approvalId, userId: director, how: "DISMISSED", now: NOW });
     expect(await staleNotes(db, SITE)).toEqual([]);
+  });
+});
+
+describe("the bubble's thread for a stale plan card (Vera, #124)", () => {
+  const lineOf = async (id: string) => (await readAgentThread(db, SITE)).items.find((i) => "id" in i && i.id === `${id}:done`);
+
+  it("a stale card nobody decided says the plan changed, with Open Plan routes — not 'Already handled'", async () => {
+    const { card, name } = await staleCard("thread-a");
+    expect(await lineOf(card)).toEqual({
+      kind: "agent", id: `${card}:done`, text: `${name}'s plan changed after this card was written.`,
+      link: { label: "Open Plan routes", href: PLAN_ROUTES_PATH },
+    });
+  });
+
+  it("a card somebody decided keeps its decided line, and 'Already handled' when none was recorded", async () => {
+    const { card } = await staleCard("thread-b");
+    expect((await confirmStaffAction(db, { userId: director, approvalId: card, decision: "DECLINED", now: NOW })).status).toBe(200);
+    expect(await lineOf(card)).toMatchObject({ text: confirmCopy.declined });
+    expect(await lineOf(card)).not.toHaveProperty("link");
+    await db.query("UPDATE ops.approval_request SET proposal = proposal - 'outcome' WHERE id = $1", [card]);
+    expect(await lineOf(card)).toMatchObject({ text: confirmCopy.alreadyHandled });
   });
 });

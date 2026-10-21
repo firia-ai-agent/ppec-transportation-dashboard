@@ -18,8 +18,9 @@ import { STAFF_ACTION_KIND, type StaleNoteView } from "./confirm-view";
 /** The child a plan card is about: `move_child`'s, or a `save_plan`'s first move's. */
 export function cardChild(args: Record<string, unknown>): string | null {
   if (typeof args.child_token === "string") return args.child_token;
-  const first = Array.isArray(args.moves) ? (args.moves[0] as { child_token?: unknown } | undefined) : undefined;
-  return typeof first?.child_token === "string" ? first.child_token : null;
+  const first = Array.isArray(args.moves) ? (args.moves[0] as { child_token?: unknown; childToken?: unknown } | undefined) : undefined;
+  const token = first?.child_token ?? first?.childToken;
+  return typeof token === "string" ? token : null;
 }
 
 /** The notes waiting at a centre: stale, undecided agent plan cards nobody has cleared yet. */
@@ -31,17 +32,20 @@ export async function staleNotes(db: Exec, siteId: string): Promise<readonly Sta
       ORDER BY a.created_at, a.id`,
     [siteId, STAFF_ACTION_KIND],
   );
-  const store = sqlPlanStoreIn(db);
-  const source = sqlDaySource(db, siteId);
   const out: StaleNoteView[] = [];
-  for (const r of rows.rows) {
-    const args = r.args ?? {};
-    const at = { date: String(args.date ?? ""), leg: args.leg === "AM" ? ("AM" as const) : ("PM" as const) };
-    const board = await loadBoard(store, siteId, at.date, at.leg, source).catch(() => null);
-    const words = refusalWords(refusalOf({ reason: "STALE_CARD", vanId: null, childToken: cardChild(args) }, at, board));
-    out.push({ approvalId: r.id, says: words.says, fix: words.fix });
-  }
+  for (const r of rows.rows) out.push({ approvalId: r.id, ...(await staleCardWords(db, siteId, r.args ?? {})) });
   return out;
+}
+
+/**
+ * The words a stale plan card is said in, wherever it is said — For you's note, the bubble's thread,
+ * Approve's 422: the child off the board, and Plan routes. Never a version or a code.
+ */
+export async function staleCardWords(db: Exec, siteId: string, args: Record<string, unknown>): Promise<Omit<StaleNoteView, "approvalId">> {
+  const at = { date: String(args.date ?? ""), leg: args.leg === "AM" ? ("AM" as const) : ("PM" as const) };
+  const board = await loadBoard(sqlPlanStoreIn(db), siteId, at.date, at.leg, sqlDaySource(db, siteId)).catch(() => null);
+  const words = refusalWords(refusalOf({ reason: "STALE_CARD", vanId: null, childToken: cardChild(args) }, at, board));
+  return { says: words.says, fix: words.fix };
 }
 
 /**
