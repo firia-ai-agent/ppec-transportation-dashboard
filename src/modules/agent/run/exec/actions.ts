@@ -40,6 +40,7 @@ import { STAFF_ACTION_TASK_CATEGORY } from "@/modules/actions/draft";
 import { STAFF_ASK_CARDS_IN_CONTEXT, STAFF_ASK_TASKS_IN_CONTEXT } from "../staff-ask-context";
 import { openTaskRows, pendingCardRows } from "../waiting";
 import { legOf, teamPlanChange, todayOf } from "./team";
+import { planFacts } from "../plan-facts";
 import { wrapUntrusted } from "../../policy";
 import type { ToolExecutor, ToolExecutors } from "../executors";
 import type { ExecutorDeps } from "./effects";
@@ -98,27 +99,8 @@ function getPlanExecutor(deps: ExecutorDeps): ToolExecutor {
     if (!leg) return failed("NO_SUCH_LEG");
     const board = actionDepsFor(deps.db, call.siteId);
     const view = await loadBoard(board.store!, call.siteId, todayOf(call.now), leg, board.source);
-    const facts: Record<string, string | number | boolean> = { leg, saved: view.version > 0 };
-    const times = plannedStopTimes(view.day, view.plan, view.departs);
-    for (const van of view.day.vans) {
-      const riders = ridersInVan(view.day, view.plan, van.id);
-      const used = usedInVan(view.day, view.plan, van.id);
-      facts[van.name] =
-        `leaves ${at(view.departs[van.id])}, seats ${used.seats}/${van.setup.seats}, wheelchair ${used.wheelchairSpots}/${van.setup.wheelchairSpots}, ` +
-        `car seats ${used.carSeats}/${van.setup.carSeats}, oxygen ${used.oxygenMounts}/${van.setup.oxygenMounts}, lift ${yes(van.setup.hasLift)}, ` +
-        `fits ${yes(fits(van.setup, riders))}, riders: ${riders.map((r) => `${r.name} ≈${at(times.get(r.token)?.arrivesAtMinute)}`).join(", ") || "none"}`;
-    }
-    // Who the plan already has outside a time their family agreed (ledger #84), by name.
-    const outside = [...outsideSlots(view.day, view.plan, view.departs)].filter(([, off]) => off > 0);
-    if (outside.length > 0) {
-      facts.outside_agreed = outside.map(([token, off]) => `${view.day.riders.find((r) => r.token === token)?.name ?? token} ${off} min`).join(", ");
-    }
-    for (const bucket of ["UNASSIGNED", "FAMILY_DRIVES", "ABSENT"] as const) {
-      const here = view.day.riders.concat(view.day.others).filter((r) => view.plan[r.token]?.bucket === bucket);
-      if (here.length > 0) facts[bucket.toLowerCase()] = here.map((r) => r.name).join(", ");
-    }
-    const short = shortfallsOfDay(view.day, view.plan);
-    facts.does_not_fit = short.map((s) => `${view.day.riders.find((r) => r.token === s.token)?.name ?? s.token} (${s.shortfall.reason})`).join(", ") || "none";
+    // The same reading the staff ask's prompt carries (`run/plan-facts.ts`, ledger #87).
+    const facts = planFacts(view);
     const preview = call.args.preview as { moves?: unknown; departures?: unknown } | undefined;
     if (preview && (Array.isArray(preview.moves) || Array.isArray(preview.departures))) Object.assign(facts, previewFacts(view, preview));
     return { status: "executed", data: { plan_version: view.version }, promptFacts: facts };
@@ -286,6 +268,8 @@ function getActivityExecutor(deps: ExecutorDeps): ToolExecutor {
 
     const recent = events.sort((a, b) => a.at.getTime() - b.at.getTime()).slice(-20);
     const facts: Record<string, string | number> = { events: recent.length };
+    // An empty day is an answer, not a reason to ask again (ledger #87: six identical reads on prod).
+    if (recent.length === 0) facts.note = "nothing has happened yet today";
     recent.forEach((e, i) => (facts[`event_${i + 1}`] = `${siteTimeLabel(new Date(e.at))} ${e.line}`.slice(0, 300)));
     return { status: "executed", data: { events: recent.length }, promptFacts: facts };
   };

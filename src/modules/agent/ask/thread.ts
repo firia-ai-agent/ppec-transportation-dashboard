@@ -22,7 +22,7 @@
 import type { Db } from "@/db/exec";
 import type { AgentThreadItem } from "@/ui/AgentThread";
 import { agentRetryConfig } from "@/config/live";
-import { agentBubble, confirmCopy, fill } from "@/ui/copy";
+import { agentBubble, agentSteps, confirmCopy, fill } from "@/ui/copy";
 import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
 import { staleCardWords } from "@/modules/actions/stale-notes";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
@@ -153,11 +153,31 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     return text === null ? [] : [{ at: r.at, item: { kind: "agent", id: `${r.ask_id}:answer`, text } as AgentThreadItem }];
   });
   const answeredIds = new Set(answers.map((a) => (a.item as { id: string }).id.replace(/:answer$/, "")));
+  /*
+   * WHAT IT IS DOING, STEP BY STEP (ledger #87): every committed call of an ask still on its way, as
+   * a quiet line in fixed words, so a person sees it working rather than a single "Working on it…".
+   * The pulse moves on every turn (`agent_run.updated_at`), so each line appears as it happens.
+   */
+  const stepRows = pending.size === 0 ? [] : (
+    await db.query<{ ask_id: string; id: string; tool: string; leg: string | null; at: Date }>(
+      `SELECT r.trigger_id AS ask_id, c.id::text AS id, c.tool, c.args->>'leg' AS leg, c.created_at AS at
+         FROM ops.agent_run r JOIN ops.agent_tool_call c ON c.run_id = r.id
+        WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND r.trigger_id = ANY($2::text[]) AND c.status <> 'PENDING'
+        ORDER BY c.created_at, c.seq`,
+      [siteId, [...pending]],
+    )
+  ).rows;
   const said = asks.rows.flatMap((r) => {
     const ask = { at: r.at, item: { kind: "staff", id: r.id, text: detokenizeNames(askTextOf(r.summary), "label") } as AgentThreadItem };
     // The outcome, when there is one, is what the person reads — never "working" over it.
     if (pending.has(r.id) && !answeredByAlert.has(r.id) && !answeredIds.has(r.id)) {
-      return [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem }];
+      const steps = stepRows.filter((st) => st.ask_id === r.id);
+      const last = steps.length > 0 ? steps[steps.length - 1].at : r.at;
+      return [
+        ask,
+        ...steps.map((st) => ({ at: st.at, item: { kind: "step", id: `${r.id}:step:${st.id}`, text: stepWords(st.tool, st.leg) } as AgentThreadItem })),
+        { at: last, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem },
+      ];
     }
     // The same line, under the same id, the bubble shows live (`agent-ask-state.addNoAnswer`).
     const unanswered = answeredByAlert.has(r.id) || r.category === STAFF_ALERT_TASK_CATEGORY;
@@ -320,4 +340,11 @@ async function alertsHeard(
       } as AgentThreadItem,
     }];
   });
+}
+
+/** The quiet line for one step (ledger #87): by tool, in fixed words, with the leg it read. */
+export function stepWords(tool: string, leg: string | null): string {
+  const said = agentSteps as Readonly<Record<string, string>>;
+  if (said[tool]) return fill(said[tool], { leg: leg === "AM" ? "morning" : leg === "PM" ? "afternoon" : "day's" });
+  return tool.startsWith("propose_") || tool === "restart_demo_day" ? agentSteps.card : agentSteps.default;
 }

@@ -18,6 +18,11 @@ export type ProviderCall = {
   readonly zdr: boolean;
   readonly dataMode: DataMode;
   readonly prompt: string;
+  /**
+   * `prompt` as cacheable blocks, when the caller built it that way (ledger #87); joined with "\n"
+   * they are exactly `prompt`. An adapter that cannot cache sends `prompt` and ignores these.
+   */
+  readonly promptBlocks?: readonly string[];
   /** JSON-Schema tool declarations (PRD §11.2 "JSON-schema tool calls only"). */
   readonly tools: readonly { name: string; tier: string; parameters: Record<string, unknown>; description?: string }[];
   /** sha256 of the prompt, the only form of it a provider may log or key on. */
@@ -37,7 +42,12 @@ export type ProviderResponseBody = {
   readonly usage?: TokenUsage;
 };
 
-export type TokenUsage = { readonly inputTokens: number; readonly outputTokens: number };
+export type TokenUsage = {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /** Of `inputTokens`, how many the provider read from its prompt cache (ledger #87). */
+  readonly cachedInputTokens?: number;
+};
 
 /**
  * Every kind of provider there is. All three are vendors or stand-ins for one.

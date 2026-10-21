@@ -50,7 +50,12 @@ export type AgentThreadItem =
    * card is titled with. There is no `decide` here: deciding is a write, and the write path is
    * not on this branch (see the three actions below).
    */
-  | { readonly kind: "proposal"; readonly id: string; readonly question: string };
+  | { readonly kind: "proposal"; readonly id: string; readonly question: string }
+  /**
+   * What the agent is doing right now, one step at a time (ledger #87): small grey text, no bubble.
+   * Shown only while its run is on its way; the answer replaces them. Fixed words, never the model's.
+   */
+  | { readonly kind: "step"; readonly id: string; readonly text: string };
 
 export function AgentThread({
   items,
@@ -100,6 +105,12 @@ export function AgentThread({
                     </a>
                   </>
                 ) : null}
+              </p>
+            );
+          case "step":
+            return (
+              <p key={item.id} className={styles.step} data-agent-step="">
+                {item.text}
               </p>
             );
           case "proposal": {

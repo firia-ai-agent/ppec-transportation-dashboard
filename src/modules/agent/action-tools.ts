@@ -248,7 +248,7 @@ export const TEAM_TOOLS: readonly ToolDef[] = [
     "propose_plan_change",
     z.object({
       leg: LEG,
-      replan: z.boolean().optional().describe(agentGuidance.replanArg),
+      auto_plan: z.enum(["whole_leg", "fix_fit"]).optional().describe(agentGuidance.autoPlanArg),
       moves: z.array(TEAM_MOVE).max(40).optional(),
       departures: z.array(TEAM_DEPARTURE).max(VANS.length).optional(),
     }),

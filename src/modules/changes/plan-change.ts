@@ -26,7 +26,11 @@ type BoardView = Awaited<ReturnType<typeof loadBoard>>;
 const LATE_MINUTES = notifyGateConfig.shiftSeconds / 60;
 
 export type PlanChange = {
-  readonly replan?: boolean;
+  /**
+   * Auto-plan, by name (ledger #87): WHOLE_LEG plans the leg from scratch, as the board's Auto-plan
+   * button does; FIX_FIT is the smallest change — only children who no longer fit move (Re-plan).
+   */
+  readonly auto?: AutoPlanMode;
   readonly moves?: readonly { readonly token: string; readonly bucket: Placement["bucket"]; readonly vanId: string | null }[];
   /** `{ vanId: "HH:MM" }`, today's departures this change sets. */
   readonly departures?: Readonly<Record<string, string>>;
@@ -62,6 +66,8 @@ export type PlanPreview =
   | { readonly ok: false; readonly reason: "NO_VAN_FITS"; readonly children: readonly string[] };
 
 
+export type AutoPlanMode = "WHOLE_LEG" | "FIX_FIT";
+
 /**
  * THE SMALLEST RE-PLAN THAT WORKS. A colleague moves the children the problem is about, not the
  * whole afternoon: everybody still fitting the van they are in stays put (pinned for this search),
@@ -91,7 +97,10 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
     if (!named[m.token]) continue;
     named[m.token] = { ...named[m.token], bucket: m.bucket, vanId: m.bucket === "VAN" ? m.vanId : null, pinned: true };
   }
-  const next: Record<string, Placement> = { ...(change.replan ? smallestReplan(view.day, named) : named) };
+  const mode = change.auto ?? null;
+  const next: Record<string, Placement> = {
+    ...(mode === "WHOLE_LEG" ? autoPlan(view.day, named) : mode === "FIX_FIT" ? smallestReplan(view.day, named) : named),
+  };
   for (const [token, hhmm] of Object.entries(change.holds ?? {})) {
     if (next[token] && minuteOfDay(hhmm) !== null) next[token] = { ...next[token], notBefore: hhmm };
   }
@@ -110,7 +119,7 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
   if (moved.length === 0 && held.length === 0 && Object.keys(departures).length === 0) return { ok: false, reason: "NOTHING_TO_CHANGE" };
 
   const stranded = moved.filter((r) => next[r.token]?.bucket === "UNASSIGNED");
-  if (change.replan && Object.keys(departures).length === 0 && held.length === 0 && stranded.length === moved.length) {
+  if (mode !== null && Object.keys(departures).length === 0 && held.length === 0 && stranded.length === moved.length) {
     return { ok: false, reason: "NO_VAN_FITS", children: stranded.map((r) => r.name) };
   }
 

@@ -3260,14 +3260,17 @@ export const agentGuidance = {
   readFamilyTexts: "Read a family's recent texts, oldest first, to see exactly what they said.",
   getActivity: "Read what happened today: plans saved, vans checked, alerts, cards approved or declined, texts sent.",
   proposePlanChange:
-    "Change a leg's plan, as a card the person approves; nothing changes until they do. Set replan to let Auto-plan " +
-    "find the smallest fix, or give moves and/or departures yourself. The card shows who moves, the new times and whether every van fits.",
-  replanArg: "true to let Auto-plan move only the children who no longer fit",
+    "Change a leg's plan, as a card the person approves; nothing changes until they do. To plan the routes for a leg, " +
+    "set auto_plan to whole_leg. To fix a van that no longer fits, set auto_plan to fix_fit: only the children who no " +
+    "longer fit move. Or give moves and/or departures yourself. Every child's needs, stop and window are already on " +
+    "file, so don't look children up first. The card shows who moves, the new times and whether every van fits.",
+  autoPlanArg: "whole_leg: plan the leg from scratch (Auto-plan). fix_fit: the smallest change, only children who no longer fit (Re-plan).",
   proposeVanSetup: "Record a van's counts and lift as the ramp found them today, as a card the person approves.",
   cardNote: "One short sentence for the card: what changes and why, people as the prompt's tokens.",
   replyToStaff:
     "Answer like a coordinator would. Don't be robotic — be friendly and natural. " +
-    "Write people as the prompt's tokens. Call it last.",
+    "Write people as the prompt's tokens. This ends your turn: nothing runs after it, so do the work first " +
+    "(draft the card) and say what you did or what's waiting for them — never that you'll do something next.",
   summarize:
     "Answer the coordinator, or leave them a note about a thread: one or two plain sentences, with " +
     "people written as the prompt's family and child tokens, which are shown as first names.",
@@ -3314,6 +3317,8 @@ export const activityWords = {
 
 export const replanDraft = {
   title: "Re-plan the {leg}",
+  /** Auto-plan of a whole leg, from scratch (ledger #87): the board's Auto-plan button, as a card. */
+  planTitle: "Plan the {leg}",
   moved: "{child}: {from} → {to} · ≈ {time}",
   movedLate: "{child}: {from} → {to} · ≈ {time} (+{late} min)",
   noVan: "no van",
@@ -3406,6 +3411,21 @@ export const vanShortAlert = {
   itsRiders: "its riders",
   nextStep: "Re-plan the leg so every van fits, or change who rides in it.",
   predicate: "every van on the leg fits its riders again",
+} as const;
+
+/**
+ * One quiet line per step while the agent works (ledger #87), by tool. Fixed words: what a step
+ * is doing, never what the model wrote. Anything not listed reads as `default`.
+ */
+export const agentSteps = {
+  get_activity: "Checking today's activity…",
+  get_plan: "Reading the {leg} plan…",
+  get_child: "Looking at a child's day…",
+  get_waiting: "Checking what's waiting…",
+  read_family_texts: "Reading a family's texts…",
+  propose_plan_change: "Drafting a plan card…",
+  card: "Drafting a card…",
+  default: "Thinking…",
 } as const;
 
 export const agentBubble = {
