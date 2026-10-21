@@ -1,5 +1,5 @@
 /**
- * A STALE AGENT PLAN CARD LEAVES A NOTE (Vera, PR 124). When a person saves a leg after the agent wrote
+ * A STALE AGENT PLAN CARD LEAVES A NOTE. When a person saves a leg after the agent wrote
  * a plan card for it, the card cannot be approved (`STALE_PLAN_CARD_SQL`, and Approve's 422) — but it
  * must not just vanish from For you. In its place is one line, the same words as the refusal:
  * "{child}'s plan changed after this card was written." with Open Plan routes. No Approve.
@@ -51,7 +51,7 @@ export async function staleCardWords(db: Exec, siteId: string, args: Record<stri
 }
 
 /**
- * Clear one note: dismissed, or Plan routes opened from it (PPE-114). Only somebody who may decide
+ * Clear one note: dismissed, or Plan routes opened from it. Only somebody who may decide
  * cards (`APPROVAL_ROLES`) at the card's own centre, and only a stale, undecided card — a live card,
  * a decided one, another centre's, a front desk's or a family's press writes nothing. The card itself
  * stays undecided (Approve still 422s).

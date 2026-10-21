@@ -42,7 +42,7 @@ export type ConfirmAnswer =
       readonly body: { readonly ok: false; readonly error: "SIGN_IN" | "NOT_YOUR_ROLE" | "NO_SUCH_CARD" | "ALREADY_DECIDED" | "ACTION_REFUSED"; readonly reason?: string; readonly refusal?: Refusal };
     };
 
-/** The agent's plan cards that must carry `basis_version` (PPE-112). */
+/** The agent's plan cards that must carry `basis_version`. */
 const AGENT_PLAN_TOOLS: ReadonlySet<string> = new Set(["save_plan", "move_child"]);
 
 export async function confirmStaffAction(
@@ -76,7 +76,7 @@ export async function confirmStaffAction(
   }
 
   /*
-   * A PLAN CARD IS JUDGED AT APPROVE AS THE LIST JUDGES IT (PPE-112): one the board has moved past
+   * A PLAN CARD IS JUDGED AT APPROVE AS THE LIST JUDGES IT: one the board has moved past
    * is refused by id too, never applied over the newer save. And an agent's `save_plan` /
    * `move_child` card must name the board it was written on — without a numeric `basis_version`
    * Approve would read the version now and write over whatever was saved since, so it is refused.

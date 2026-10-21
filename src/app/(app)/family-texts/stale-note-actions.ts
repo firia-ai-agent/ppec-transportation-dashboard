@@ -9,7 +9,7 @@ import { clearStaleNote } from "@/modules/actions/stale-notes";
 import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 
 /*
- * A stale agent plan card's note (PR 124). A file of its own, under its own access row, rather than in the
+ * A stale agent plan card's note. A file of its own, under its own access row, rather than in the
  * confirm actions: importing those pulled the action registry — and the demo reset's seed, which
  * writes identity — into the Family texts page's graph.
  */

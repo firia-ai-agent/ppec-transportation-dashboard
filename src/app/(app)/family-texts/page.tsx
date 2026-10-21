@@ -116,7 +116,7 @@ export default async function FamilyTextsPage({
    * the screen cannot say "1 waiting" over a card that is about something else, and cannot draw a
    * card with no row behind it for an Approve to post.
    *
-   * READING THIS PAGE WRITES NOTHING AND CALLS NO MODEL (PPE-96). The card is the agent run's: an
+   * READING THIS PAGE WRITES NOTHING AND CALLS NO MODEL. The card is the agent run's: an
    * inbound text starts a run, the model proposes, and the proposal writer stores the row this
    * reads (`agent/run/exec/proposals.ts`). With no model there is nothing to approve, because
    * nothing read the family's text — gate 5 — and a role that may not decide does not have the
@@ -235,7 +235,7 @@ async function readQueue(
   }
 }
 
-/** Stale agent plan cards' notes (Vera, PR 124), failing soft like the rest. */
+/** Stale agent plan cards' notes, failing soft like the rest. */
 async function readStaleNotes(siteId: string) {
   try {
     return await staleNotes(getExec(), siteId);
