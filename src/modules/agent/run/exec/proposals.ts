@@ -869,16 +869,35 @@ async function staffAction(_deps: ExecutorDeps, tx: Exec, input: ProposalInput):
   const tool = actionTool(input.tool)!;
   const by = `agent:${input.runId}`;
   const note = typeof input.args.note === "string" ? input.args.note : null;
+  const args = await withBasisVersion(tx, input.siteId, tool.name, input.args);
   const approvalId = await writeStaffActionCard(tx, {
     siteId: input.siteId,
     key: input.idempotencyKey,
     by,
     tool: tool.name,
     action: tool.action,
-    args: input.args,
-    summary: staffActionSummary(tool.name, input.args),
+    args,
+    summary: staffActionSummary(tool.name, args),
     note,
     approvalKey: input.approvalKey,
   });
   return { approval_request_id: approvalId, mutated: false };
+}
+
+/** The plan tools whose card re-plans a leg, so it must name the board it was drafted on. */
+const BASIS_TOOLS: ReadonlySet<string> = new Set(["save_plan", "move_child"]);
+
+/**
+ * A DIRECT PLAN CARD CARRIES ITS BOARD (PPE-110): `save_plan` and `move_child` cards record the
+ * leg's `plan_run.version` as it stands in this transaction, the same as a drafted card. A save past
+ * it makes the card stale by version (`STALE_PLAN_CARD_SQL`), never by the clock, and Approve names
+ * that version so the board refuses rather than writing over the newer save. Always read here, never
+ * taken from the model.
+ */
+async function withBasisVersion(tx: Exec, siteId: string, toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (!BASIS_TOOLS.has(toolName)) return args;
+  const leg = legOf(args.leg);
+  if (!leg || typeof args.date !== "string") return args;
+  const saved = await sqlPlanStoreIn(tx).loadPlan(siteId, args.date, leg);
+  return { ...args, basis_version: saved?.version ?? 0 };
 }

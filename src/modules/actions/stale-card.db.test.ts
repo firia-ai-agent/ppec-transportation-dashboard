@@ -1,4 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { uuidv7 } from "uuidv7";
+import { proposalWriter } from "@/modules/agent/run/exec/proposals";
+import { FakeTransport } from "@/modules/jobs/fake-transport";
+import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
+import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import type { Db } from "@/db/exec";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { vansOver } from "@/modules/plan/place";
@@ -87,5 +92,65 @@ describe("a plan card drafted on a board somebody has since saved past (ledger #
       args: { date: DATE, leg: "PM", moves: [], basis_version: current }, summary: "Change the afternoon plan",
     });
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(fresh);
+  });
+});
+
+/**
+ * A DIRECT CARD (PPE-110): the agent's own `save_plan` / `move_child` card, not a drafted re-plan.
+ * Before, it carried no `basis_version`, so the clock rule judged it — and a person's save stamped
+ * before the card's `created_at` let it come back. Now the card records the board it was written on.
+ */
+describe("a direct save_plan / move_child card written before somebody saved the leg (PPE-110)", () => {
+  const directCard = async (tool: "save_plan" | "move_child", args: Record<string, unknown>) => {
+    const execDeps = { db, scheduler: new VercelQueueScheduler(db, new FakeTransport(), () => NOW), transport: new FakeOutboxTransport() };
+    const out = await db.tx((tx) =>
+      proposalWriter(execDeps)(tx, {
+        runId: uuidv7(), callId: uuidv7(), siteId: SITE, seq: 1, tool, args,
+        idempotencyKey: uuidv7(), approvalKey: `k-${tool}`, committed: [], trigger: { type: "msg.inbound", id: uuidv7() }, now: NOW,
+      }),
+    );
+    return String(out.approval_request_id);
+  };
+  const proposalOf = async (id: string) =>
+    (await db.query<{ args: Record<string, unknown> }>("SELECT proposal->'args' AS args FROM ops.approval_request WHERE id = $1", [id])).rows[0].args;
+  /** A person moves one child on the board and saves: the leg moves on a version. */
+  const personSaves = async () => {
+    const view = await board();
+    const [token, p] = Object.entries(view.plan).find(([, p]) => p.bucket === "VAN")!;
+    const other = Object.values(view.plan).find((q) => q.bucket === "VAN" && q.vanId !== p.vanId)!.vanId;
+    const moved = await ACTIONS.move_child.run(ctx(director, "DIRECTOR"), { date: DATE, direction: "PM", childToken: token, bucket: "VAN", vanId: other });
+    expect(moved.status).toBe(200);
+    // The save's stamp is its transaction's start: earlier than the card the agent wrote a moment before it committed.
+    await db.query(
+      "UPDATE ops.plan_run SET updated_at = now() - interval '1 hour' WHERE site_id = $1 AND service_date = $2 AND direction = 'PM'",
+      [SITE, DATE],
+    );
+  };
+
+  for (const tool of ["save_plan", "move_child"] as const) {
+    it(`${tool}: carries the board's version, is not offered once the board moves past it, and Approve is refused`, async () => {
+      const view = await board();
+      const [token, p] = Object.entries(view.plan).find(([, p]) => p.bucket === "VAN")!;
+      const move = { child_token: token, bucket: "VAN", van_id: p.vanId };
+      const args = tool === "save_plan" ? { date: DATE, leg: "PM", moves: [move] } : { date: DATE, leg: "PM", ...move };
+      const card = await directCard(tool, args);
+      expect((await proposalOf(card)).basis_version).toBe(view.version);
+      expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(card);
+
+      await personSaves();
+      const saved = (await board()).version;
+      expect(saved).toBe(view.version + 1);
+      // By the clock the card is newer than the save; by version it is not, and version decides.
+      expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).not.toContain(card);
+      const pressed = await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW });
+      expect(pressed.status).not.toBe(200);
+      expect((await board()).version).toBe(saved);
+    });
+  }
+
+  it("the model cannot name its own basis_version", async () => {
+    const view = await board();
+    const card = await directCard("save_plan", { date: DATE, leg: "PM", moves: [], basis_version: view.version + 50 });
+    expect((await proposalOf(card)).basis_version).toBe(view.version);
   });
 });

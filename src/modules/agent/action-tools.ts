@@ -91,7 +91,13 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
     schema: z.object({ date: DATE, leg: LEG }).merge(move),
     prd: "ledger #74: one drag + Save on the plan board",
     description: agentGuidance.moveChild,
-    toInput: async (a) => ({ date: a.date, direction: a.leg, ...asMove(a as z.infer<typeof move>) }),
+    toInput: async (a) => ({
+      date: a.date,
+      direction: a.leg,
+      ...asMove(a as z.infer<typeof move>),
+      // The board the card was drafted on (PPE-110), as `save_plan` below.
+      ...(typeof a.basis_version === "number" ? { version: a.basis_version } : {}),
+    }),
   }),
   tool({
     name: "save_plan",
