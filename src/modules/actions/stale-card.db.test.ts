@@ -4,6 +4,8 @@ import { proposalWriter } from "@/modules/agent/run/exec/proposals";
 import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
+import { refusalWords } from "@/modules/changes/refusal";
+import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import type { Db } from "@/db/exec";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { vansOver } from "@/modules/plan/place";
@@ -169,5 +171,83 @@ describe("a card whose basis_version is not a number (PPE-111)", () => {
     const ids = (await confirmCards(db, SITE)).map((c) => c.approvalId);
     expect(ids).toContain(good);
     expect(ids).not.toContain(bad);
+  });
+});
+
+/**
+ * APPROVE RUNS THE LIST'S CHECK (PPE-112). An agent plan card the board has moved past — or one that
+ * never named its board — is refused at Approve by id, and nothing is written. A person's own move
+ * on the board needs no version.
+ */
+describe("Approve on an agent plan card the board moved past (PPE-112)", () => {
+  const vanChild = async () => {
+    const view = await board();
+    const [token, p] = Object.entries(view.plan).find(([, p]) => p.bucket === "VAN")!;
+    const other = Object.values(view.plan).find((q) => q.bucket === "VAN" && q.vanId !== p.vanId)!.vanId!;
+    return { view, token, other };
+  };
+  const personMoves = async () => {
+    const { token, other } = await vanChild();
+    // Straight on the board, no version: still saves.
+    const moved = await ACTIONS.move_child.run(ctx(director, "DIRECTOR"), { date: DATE, direction: "PM", childToken: token, bucket: "VAN", vanId: other });
+    expect(moved.status).toBe(200);
+    await db.query(
+      "UPDATE ops.plan_run SET updated_at = now() - interval '1 hour' WHERE site_id = $1 AND service_date = $2 AND direction = 'PM'",
+      [SITE, DATE],
+    );
+  };
+  const nameOf = async (token: string) => [...(await board()).day.riders, ...(await board()).day.others].find((c) => c.token === token)!.name;
+
+  it("refuses an old agent card with no basis_version after a newer save, with Vera's line and Plan routes", async () => {
+    const { token, other } = await vanChild();
+    const old = await writeStaffActionCard(db, {
+      siteId: SITE, key: "old-no-version-112", by: "agent:old", tool: "move_child", action: "move_child",
+      args: { date: DATE, leg: "PM", child_token: token, bucket: "VAN", van_id: other }, summary: "Move a child",
+    });
+    await personMoves();
+    const saved = (await board()).version;
+    const pressed = await confirmStaffAction(db, { userId: director, approvalId: old, decision: "APPROVED", now: NOW });
+    expect(pressed.status).toBe(422);
+    expect((await board()).version).toBe(saved);
+    // What the coordinator sees: the child's name, a link to Plan routes, no version or code.
+    const refusal = !pressed.body.ok ? pressed.body.refusal! : null;
+    const words = refusalWords(refusal!);
+    expect(words.says).toBe(`${await nameOf(token)}'s plan changed after this card was written.`);
+    expect(words.fix).toEqual({ label: "Open Plan routes", href: PLAN_ROUTES_PATH });
+    expect(words.says).not.toMatch(/\d|STALE|version|422/i);
+    // Still pending, never claimed.
+    const left = await db.query<{ decided_at: Date | null }>("SELECT decided_at FROM ops.approval_request WHERE id = $1", [old]);
+    expect(left.rows[0].decided_at).toBeNull();
+  });
+
+  it("refuses by id a card the list hides", async () => {
+    const { view, token, other } = await vanChild();
+    const card = await writeStaffActionCard(db, {
+      siteId: SITE, key: "hidden-112", by: "agent:hidden", tool: "save_plan", action: "save_plan",
+      args: { date: DATE, leg: "PM", moves: [{ child_token: token, bucket: "VAN", van_id: other }], basis_version: view.version }, summary: "Change the afternoon plan",
+    });
+    await personMoves();
+    expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).not.toContain(card);
+    const saved = (await board()).version;
+    const pressed = await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW });
+    expect(pressed.status).toBe(422);
+    expect((await board()).version).toBe(saved);
+  });
+
+  it("still approves a fresh agent card that names the board as it stands", async () => {
+    const { view, token, other } = await vanChild();
+    const card = await writeStaffActionCard(db, {
+      siteId: SITE, key: "fresh-112", by: "agent:fresh", tool: "move_child", action: "move_child",
+      args: { date: DATE, leg: "PM", child_token: token, bucket: "VAN", van_id: other, basis_version: view.version }, summary: "Move a child",
+    });
+    const pressed = await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW });
+    expect(pressed.status).toBe(200);
+    expect((await board()).version).toBe(view.version + 1);
+  });
+
+  it("a person's own move on the board, with no version, still saves", async () => {
+    const before = (await board()).version;
+    await personMoves();
+    expect((await board()).version).toBe(before + 1);
   });
 });

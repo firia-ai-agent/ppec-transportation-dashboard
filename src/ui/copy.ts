@@ -3380,8 +3380,11 @@ export const refusal = {
     /** A route that would get a child home outside the time their family agreed (ledger #84). */
     OUTSIDE_SLOT: "{child} would miss the time their family agreed.",
     OTHER: "The {leg} plan wouldn't take this change.",
+    /** An agent plan card the board moved past, or one that never named its board (PPE-112). */
+    STALE_CARD: "{child}'s plan changed after this card was written.",
+    STALE_CARD_NO_CHILD: "The {leg} plan changed after this card was written.",
   },
-  fix: { van: "Fix {van}", child: "Open {child}'s family", plan: "Open the {leg} plan" },
+  fix: { van: "Fix {van}", child: "Open {child}'s family", plan: "Open the {leg} plan", planRoutes: "Open Plan routes" },
   legWord: { AM: "morning", PM: "afternoon" },
   aVan: "a van",
   aChild: "a child",

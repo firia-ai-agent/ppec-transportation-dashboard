@@ -65,6 +65,13 @@ export function refusalWords(r: Refusal): RefusalWords {
   // A sentence that would have to name somebody it cannot falls back to the plain one.
   const needs = (template: string) => (template.includes("{van}") && !r.vanName) || (template.includes("{child}") && !r.childName);
   const says = known && !needs(known) ? fill(known, values) : fill(words.says.OTHER, values);
+  // A stale agent plan card (PPE-112): who it was about, and Plan routes — never a version or a code.
+  if (r.reason === "STALE_CARD") {
+    return {
+      says: fill(r.childName ? words.says.STALE_CARD : words.says.STALE_CARD_NO_CHILD, values),
+      fix: { label: words.fix.planRoutes, href: PLAN_ROUTES_PATH },
+    };
+  }
   const childKey = r.childToken ? demoTokenForId(r.childToken) : null;
   const fix =
     r.vanId && r.vanName
