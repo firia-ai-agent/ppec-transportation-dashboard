@@ -3,7 +3,7 @@ import styles from "@/app/(app)/family-texts/texts.module.css";
 import { confirmCopy } from "./copy";
 
 /**
- * A STALE AGENT PLAN CARD'S NOTE (Vera, PR 124): where the card was on For you, one line and Plan
+ * A STALE AGENT PLAN CARD'S NOTE: where the card was on For you, one line and Plan
  * routes. Never an Approve — the card cannot be approved (the server refuses it with 422 too).
  * Both buttons are POSTs: opening Plan routes from here clears the note, then goes there.
  */

@@ -19,7 +19,7 @@ export type { ConfirmView } from "./confirm-view";
  * drafted on the old board while that save was still committing looked newer than it (ledger #86). One SQL
  * predicate over `a` (the approval row), shared by this read and the thread's (ask/thread.ts). A
  * `basis_version` that is not a number names no board, so the card is not offered — and the read
- * never casts it, so one bad row cannot break the list for the site (PPE-111).
+ * never casts it, so one bad row cannot break the list for the site.
  */
 export const STALE_PLAN_CARD_SQL = `(
   a.proposal->>'tool' IN ('auto_plan', 'save_plan', 'move_child') AND EXISTS (

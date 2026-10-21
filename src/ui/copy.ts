@@ -3335,7 +3335,7 @@ export const replanDraft = {
 
 export const confirmCopy = {
   heading: "Confirm a change",
-  /** The note a stale agent plan card leaves on For you (Vera, PR 124): its line is `refusal.says.STALE_CARD`. */
+  /** The note a stale agent plan card leaves on For you: its line is `refusal.says.STALE_CARD`. */
   staleNoteDismiss: "Dismiss",
   confirm: "Approve",
   dontDo: "Don't",
