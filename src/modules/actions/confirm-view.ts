@@ -20,11 +20,13 @@ export type ConfirmView = {
 };
 
 /**
- * A stale agent plan card, as the note For you shows in its place (Vera): the refusal's own
- * line and its Plan routes link. No Approve — the card cannot be approved.
+ * A stale agent plan card (Vera): its own title, with the refusal's line and Plan routes where
+ * Approve would be. No Approve — the card cannot be approved.
  */
 export type StaleNoteView = {
   readonly approvalId: string;
+  /** The card's own bold line, as its live card would read ("Move Noah to Van 1, afternoon."). */
+  readonly title: string;
   readonly says: string;
   readonly fix: { readonly label: string; readonly href: string };
 };

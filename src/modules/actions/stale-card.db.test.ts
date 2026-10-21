@@ -99,11 +99,11 @@ describe("a plan card drafted on a board somebody has since saved past (ledger #
 });
 
 /**
- * A DIRECT CARD (PPE-110): the agent's own `save_plan` / `move_child` card, not a drafted re-plan.
+ * A DIRECT CARD: the agent's own `save_plan` / `move_child` card, not a drafted re-plan.
  * Before, it carried no `basis_version`, so the clock rule judged it — and a person's save stamped
  * before the card's `created_at` let it come back. Now the card records the board it was written on.
  */
-describe("a direct save_plan / move_child card written before somebody saved the leg (PPE-110)", () => {
+describe("a direct save_plan / move_child card written before somebody saved the leg", () => {
   const directCard = async (tool: "save_plan" | "move_child", args: Record<string, unknown>) => {
     const execDeps = { db, scheduler: new VercelQueueScheduler(db, new FakeTransport(), () => NOW), transport: new FakeOutboxTransport() };
     const out = await db.tx((tx) =>
@@ -158,7 +158,7 @@ describe("a direct save_plan / move_child card written before somebody saved the
   });
 });
 
-describe("a card whose basis_version is not a number (PPE-111)", () => {
+describe("a card whose basis_version is not a number", () => {
   it("does not break the card list, and is not offered", async () => {
     const current = (await board()).version;
     /*

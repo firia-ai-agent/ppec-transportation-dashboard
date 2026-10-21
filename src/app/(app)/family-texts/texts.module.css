@@ -472,8 +472,7 @@
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
-  padding: var(--space-4) var(--space-5);
-  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+  padding: var(--space-4) var(--space-5) var(--space-2);
 }
 
 .cardTitle {
@@ -544,9 +543,15 @@
   gap: var(--space-4);
   align-items: center;
   flex-wrap: wrap;
-  padding: var(--space-4) var(--space-5);
-  border-top: var(--border-hairline) solid var(--color-neutral-bg);
-  background: var(--color-canvas);
+  /* One piece with the card (Vera): the card's own surface, no band and no rule above it. */
+  padding: var(--space-3) var(--space-5) var(--space-4);
+}
+
+/* Why a stale card cannot be approved, where its buttons would be: a sentence in ink, not a footnote. */
+.staleSays {
+  margin: 0 var(--space-5) var(--space-1);
+  font-size: var(--text-14);
+  color: var(--color-ink);
 }
 
 .decideForm {
@@ -877,7 +882,7 @@
 }
 
 /*
- * Demo ruling (Firia, 2026-10-18 10:55 AM ET, PPE-92 option A): the agent bubble is hidden on
+ * Demo ruling (Firia, 2026-10-18 10:55 AM ET): the agent bubble is hidden on
  * Family texts at every width while the compose bar is on the page. The thread already shows the
  * agent, and at any width the disc would sit on Send. Same pattern as the Ramp hide.
  */

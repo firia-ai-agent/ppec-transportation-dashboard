@@ -6,10 +6,14 @@ import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import type { StaleNoteView } from "@/modules/actions/confirm-view";
 import styles from "@/app/(app)/family-texts/texts.module.css";
 import { approval, confirmCopy, fill, refusal } from "./copy";
+import { AgentPanel } from "./AgentPanel";
+import { PanelActionsProvider } from "./PanelActions";
+import { stalePanel } from "./panel";
 
 /** A stale agent plan card's note on For you (Vera), rendered over the real screen. */
 const note: StaleNoteView = {
   approvalId: "00000000-0000-7000-8000-000000000124",
+  title: "Move Noah to Van 1, afternoon.",
   says: fill(refusal.says.STALE_CARD, { child: "Noah" }),
   fix: { label: refusal.fix.planRoutes, href: PLAN_ROUTES_PATH },
 };
@@ -64,5 +68,45 @@ describe("the note is drawn as a card, in the panel's own styles", () => {
     expect(buttons.find((b) => b.includes("data-open-plan-routes"))).toContain(styles.primary);
     expect(buttons.find((b) => b.includes("data-dismiss"))).toContain(styles.quiet);
     expect(html).toContain(styles.actions);
+  });
+});
+
+/**
+ * ONE CARD, NOT TWO (Vera). The stale card keeps its own bold line, and the note sits inside that
+ * same card where Approve and Don't move would be — on For you and in the bubble alike.
+ */
+describe("a stale card carries its note inside itself", () => {
+  const one = (html: string) => {
+    const sections = [...html.matchAll(/<section[^>]*>[\s\S]*?<\/section>/g)].map((m) => m[0]);
+    expect(sections).toHaveLength(1);
+    return sections[0];
+  };
+  const noWayToApprove = (card: string) => {
+    expect(card).not.toContain(`>${confirmCopy.confirm}<`);
+    expect(card).not.toContain(confirmCopy.dont.moveChild);
+    expect(card).not.toMatch(/name="decision"/);
+  };
+
+  it("on For you: the move is the bold title and the note is in the same card, with no Approve", () => {
+    const card = one(screen([note]));
+    expect(card).toMatch(/<h3[^>]*>Move Noah to Van 1, afternoon\.<\/h3>/);
+    expect(card).toContain("Noah&#x27;s plan changed after this card was written.");
+    expect(card).toContain("Open Plan routes");
+    noWayToApprove(card);
+  });
+
+  it("in the bubble: the same one card, its note in place of the buttons", () => {
+    const html = renderToStaticMarkup(
+      createElement(PanelActionsProvider, {
+        actions: { decide: noop as never, confirm: noop as never, dismissStale: noop, openStale: noop },
+        children: createElement(AgentPanel, { panel: stalePanel(note) }),
+      }),
+    );
+    const card = one(html);
+    expect(card).toContain(`data-stale-note="${note.approvalId}"`);
+    expect(card).toMatch(/<h3[^>]*>Move Noah to Van 1, afternoon\.<\/h3>/);
+    expect(card).toContain("Noah&#x27;s plan changed after this card was written.");
+    expect(card).toContain(confirmCopy.staleNoteDismiss);
+    noWayToApprove(card);
   });
 });

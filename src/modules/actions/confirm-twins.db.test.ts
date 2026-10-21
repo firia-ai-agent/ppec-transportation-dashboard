@@ -15,7 +15,7 @@ import type { ActionCtx } from "./registry";
 import { raiseNeedsPerson } from "@/modules/agent/needs-person";
 
 /**
- * ONE CHANGE, ONE PRESS (Athena, on #129). The list offers one card for two pending proposals of the
+ * ONE CHANGE, ONE PRESS (Athena). The list offers one card for two pending proposals of the
  * same change; the hidden twin must not be a second way in. Approving or declining the visible card
  * decides its twin with it, and a press on the twin by id — through `confirmStaffAction` or the
  * bubble's server action — is refused and writes nothing.
@@ -166,5 +166,33 @@ describe("an earlier dead card for the same change", () => {
     const { basis_version: _drop, ...args } = moveArgs(m, m.vans[0]);
     const only = await card("dead-alone", args);
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(only);
+  });
+});
+
+/**
+ * A REFUSED TWIN'S "NEEDS A PERSON" (Veri). When the live card is decided, the refused twin it
+ * closes is answered, and so is the "needs a person" its refused press raised — never left open.
+ */
+describe("deciding the live card when a refused twin is pending", () => {
+  it.each(["APPROVED", "DECLINED"] as const)("%s resolves the twin's open 'needs a person' too", async (decision) => {
+    const m = await aMove(decision === "APPROVED" ? 7 : 8);
+    const old = await card(`refused-${decision}`, moveArgs(m, m.vans[0]));
+    await raiseNeedsPerson(db, {
+      siteId: SITE, messageId: null, reason: "refused", key: `approval:${old}:TEST`, approvalId: old, by: "staff:test",
+      refusal: { reason: "VAN_FULL", vanId: m.vans[0], childToken: m.token, date: DATE, leg: "PM" } as never,
+    });
+    const fresh = await card(`fresh-refused-${decision}`, moveArgs(m, m.vans[0]));
+    const open = () =>
+      db.query<{ state: string }>(
+        "SELECT state FROM ops.task WHERE completion_evidence -> 'locator' ->> 'approval_id' = $1", [old],
+      );
+    expect((await open()).rows.length).toBeGreaterThan(0);
+    const r = await confirmStaffAction(db, { userId: director, approvalId: fresh, decision, now: NOW });
+    expect(r, JSON.stringify(r.body)).toMatchObject({ status: 200 });
+    const twin = await db.query<{ decided_at: Date | null }>("SELECT decided_at FROM ops.approval_request WHERE id = $1", [old]);
+    expect(twin.rows[0].decided_at).not.toBeNull();
+    const states = (await open()).rows.map((t) => t.state);
+    const { LIVE_ALERT_STATES_SQL } = await import("@/modules/agent/alert-task");
+    for (const s of states) expect(LIVE_ALERT_STATES_SQL).not.toContain(`'${s}'`);
   });
 });

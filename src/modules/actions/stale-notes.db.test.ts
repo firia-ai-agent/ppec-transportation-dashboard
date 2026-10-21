@@ -59,7 +59,9 @@ describe("a stale agent plan card on For you (Vera)", () => {
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).not.toContain(card);
     const notes = await staleNotes(db, SITE);
     expect(first).not.toBe(name);
-    expect(notes).toContainEqual({ approvalId: card, says: `${first}'s plan changed after this card was written.`, fix: { label: "Open Plan routes", href: PLAN_ROUTES_PATH } });
+    expect(notes.find((n) => n.approvalId === card)).toMatchObject({ says: `${first}'s plan changed after this card was written.`, fix: { label: "Open Plan routes", href: PLAN_ROUTES_PATH } });
+    // The card keeps its own bold line, the move in names, and the note goes inside it.
+    expect(notes.find((n) => n.approvalId === card)!.title).toMatch(new RegExp(`^Move ${first} to .+, afternoon\\.$`));
     // …and never the stored label with its initial glued to a possessive ("Noah O.'s plan changed").
     expect(notes.map((n) => n.says)).not.toContain(`${name}'s plan changed after this card was written.`);
     const saved = (await board()).version;
@@ -101,13 +103,10 @@ describe("a stale agent plan card on For you (Vera)", () => {
 describe("the bubble's thread for a stale plan card (Vera)", () => {
   const lineOf = async (id: string) => (await readAgentThread(db, SITE)).items.find((i) => "id" in i && i.id === `${id}:done`);
 
-  it("a stale card nobody decided says the plan changed, with Open Plan routes — not 'Already handled'", async () => {
-    const { card, name, first } = await staleCard("thread-a");
-    expect(first).not.toBe(name);
-    expect(await lineOf(card)).toEqual({
-      kind: "agent", id: `${card}:done`, text: `${first}'s plan changed after this card was written.`,
-      link: { label: "Open Plan routes", href: PLAN_ROUTES_PATH },
-    });
+  it("a stale card nobody decided leaves no separate line: its note is inside its own card (Vera)", async () => {
+    const { card } = await staleCard("thread-a");
+    expect(await lineOf(card)).toBeUndefined();
+    expect((await staleNotes(db, SITE)).map((n) => n.approvalId)).toContain(card);
   });
 
   it("a card somebody decided keeps its decided line, and 'Already handled' when none was recorded", async () => {
@@ -121,10 +120,10 @@ describe("the bubble's thread for a stale plan card (Vera)", () => {
 });
 
 /**
- * WHO MAY CLEAR A NOTE (PPE-114): Dismiss and Open Plan routes are refused, and write nothing, for
+ * WHO MAY CLEAR A NOTE: Dismiss and Open Plan routes are refused, and write nothing, for
  * another centre's coordinator, a card already decided, the front desk, and a family.
  */
-describe("clearing a stale card's note is refused for the wrong caller or card (PPE-114)", () => {
+describe("clearing a stale card's note is refused for the wrong caller or card", () => {
   const HOWS = ["DISMISSED", "OPENED_PLAN_ROUTES"] as const;
   const proposalOf = async (id: string) =>
     (await db.query<{ p: unknown }>("SELECT proposal AS p FROM ops.approval_request WHERE id = $1", [id])).rows[0].p;
@@ -159,5 +158,52 @@ describe("clearing a stale card's note is refused for the wrong caller or card (
     const { card } = await staleCard("ppe114-family");
     await refusedFor(card, family);
     await refusedFor(card, undefined);
+  });
+});
+
+/**
+ * A STALE CARD WITH A LIVE CARD FOR THE SAME CHANGE (Vera). The live card is the answer, so the
+ * stale one is not shown at all — a read, nothing written by looking. Pressing the stale one by id
+ * is still refused (422 on Approve) and never decides the live one; deciding the live one clears
+ * the stale one's note in the same press, so it does not resurface.
+ */
+describe("a stale card whose change has a live card waiting", () => {
+  async function staleWithLiveTwin(key: string) {
+    const stale = await staleCard(`${key}-old`);
+    const old = (await db.query<{ args: Record<string, unknown> }>("SELECT proposal->'args' AS args FROM ops.approval_request WHERE id = $1", [stale.card])).rows[0].args;
+    const live = await writeStaffActionCard(db, {
+      siteId: SITE, key: `${key}-new`, by: "agent:run", tool: "move_child", action: "move_child",
+      args: { ...old, basis_version: (await board()).version }, summary: "Move a child",
+    });
+    return { ...stale, live };
+  }
+  const rowOf = async (id: string) =>
+    (await db.query<{ decided_at: Date | null; proposal: Record<string, unknown> }>("SELECT decided_at, proposal FROM ops.approval_request WHERE id = $1", [id])).rows[0];
+
+  it("is not shown on For you or in the bubble, and reading it writes nothing", async () => {
+    const { card, live } = await staleWithLiveTwin("twin-a");
+    const before = await rowOf(card);
+    expect((await staleNotes(db, SITE)).map((n) => n.approvalId)).not.toContain(card);
+    expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(live);
+    expect(await rowOf(card)).toEqual(before);
+  });
+
+  it("a press on the stale one by id writes nothing and never decides the live one", async () => {
+    const { card, live } = await staleWithLiveTwin("twin-b");
+    const saved = (await board()).version;
+    expect((await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW })).status).toBe(422);
+    expect((await board()).version).toBe(saved);
+    expect((await rowOf(card)).decided_at).toBeNull();
+    expect((await confirmStaffAction(db, { userId: director, approvalId: card, decision: "DECLINED", now: NOW })).status).toBe(200);
+    expect((await rowOf(live)).decided_at).toBeNull();
+    expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(live);
+  });
+
+  it("deciding the live card clears the stale one's note, so it never resurfaces", async () => {
+    const { card, live } = await staleWithLiveTwin("twin-c");
+    expect((await confirmStaffAction(db, { userId: director, approvalId: live, decision: "DECLINED", now: NOW })).status).toBe(200);
+    expect((await staleNotes(db, SITE)).map((n) => n.approvalId)).not.toContain(card);
+    expect((await rowOf(card)).proposal.stale_note_cleared).toMatchObject({ how: "SUPERSEDED" });
+    expect((await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW })).status).toBe(422);
   });
 });

@@ -25,7 +25,6 @@ import { agentRetryConfig } from "@/config/live";
 import { agentBubble, agentSteps, confirmCopy, fill } from "@/ui/copy";
 import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
 import { STAFF_ACTION_KIND } from "@/modules/actions/confirm-view";
-import { staleCardWords } from "@/modules/actions/stale-notes";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
 import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
@@ -87,22 +86,13 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
         AND (a.proposal->>'outcome' IS NOT NULL OR a.proposal->>'kind' = '${STAFF_ACTION_KIND}')`,
     [siteId],
   );
-  // "Already handled" is for a card somebody decided. A stale card nobody decided says what happened
-  // — the plan changed after it was written — and where to look (Vera), as For you's note does.
-  const stale = await db.query<{ id: string; args: Record<string, unknown> | null; at: Date }>(
-    `SELECT a.id, a.proposal->'args' AS args, a.created_at AS at FROM ops.approval_request a
-      WHERE a.site_id = $1 AND a.proposal->>'kind' = '${STAFF_ACTION_KIND}' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
-    [siteId],
-  );
+  // A stale card nobody decided is drawn as its own card, its note in place of the buttons
+  // (`stale-notes.ts`, `StaleNote`) — never a second line in the thread beside it (Vera).
   const endings = [
     ...closed.rows.map((r) => ({
       at: r.at,
       item: { kind: "agent", id: `${r.id}:done`, text: r.outcome ?? confirmCopy.alreadyHandled } as AgentThreadItem,
     })),
-    ...(await Promise.all(stale.rows.map(async (r) => {
-      const words = await staleCardWords(db, siteId, r.args ?? {});
-      return { at: r.at, item: { kind: "agent", id: `${r.id}:done`, text: words.says, link: { href: words.fix.href, label: words.fix.label } } as AgentThreadItem };
-    }))),
   ];
   const changes = await db.query<{ id: string; summary: string | null; at: Date }>(
     `SELECT id, payload->>'claim_summary' AS summary, created_at AS at

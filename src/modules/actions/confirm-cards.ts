@@ -31,7 +31,7 @@ export type { ConfirmView } from "./confirm-view";
  * drafted on the old board while that save was still committing looked newer than it (ledger #86). One SQL
  * predicate over `a` (the approval row), shared by this read and the thread's (ask/thread.ts). A
  * `basis_version` that is not a number names no board, so the card is not offered — and the read
- * never casts it, so one bad row cannot break the list for the site (PPE-111).
+ * never casts it, so one bad row cannot break the list for the site.
  */
 export const STALE_PLAN_CARD_SQL = `(
   a.proposal->>'tool' IN ('auto_plan', 'save_plan', 'move_child') AND EXISTS (
@@ -152,11 +152,9 @@ export async function confirmCards(db: Exec, siteId: string): Promise<readonly C
      * row, because that was written when the card was — by a writer with no board in hand — so the
      * cards already in the queue read right too. A child or van this board cannot name falls back.
      */
-    const named = tool === "move_child" ? staffActionSummary(tool, args, await cardNames(db, siteId, args, boards)) : null;
     cards.push({
       approvalId: r.id,
-      // The card's own title where it was written with one (a re-plan draft), else the tool's line.
-      summary: named ?? r.summary ?? staffActionSummary(tool, args),
+      summary: await cardTitle(db, siteId, tool, args, r.summary, boards),
       // A note this roster cannot name in full is no note: the card falls back to the summary.
       note: namedOrNull(r.note),
       // What Don't refuses, in the card's own verb (Vera).
@@ -165,4 +163,32 @@ export async function confirmCards(db: Exec, siteId: string): Promise<readonly C
     });
   }
   return cards;
+}
+
+/**
+ * A card's bold line: a move names who and where ("Move Noah to Van 1, afternoon."), off the board;
+ * else the card's own title where it was written with one (a re-plan draft), else the tool's line.
+ * The live card and a stale card's in-card note both take their title from here.
+ */
+export async function cardTitle(
+  db: Exec, siteId: string, tool: string, args: Record<string, unknown>, stored: string | null,
+  boards: Map<string, Promise<Board | null>> = new Map(),
+): Promise<string> {
+  const named = tool === "move_child" ? staffActionSummary(tool, args, await cardNames(db, siteId, args, boards)) : null;
+  return named ?? stored ?? staffActionSummary(tool, args);
+}
+
+/**
+ * The changes a live card is offered for at a centre: pending, not stale, and one Approve would take.
+ * A stale card for one of these is not shown at all — the live card is the answer, and its note
+ * would only contradict it. A read; nothing is decided or cleared.
+ */
+export async function liveChangeKeys(db: Exec, siteId: string): Promise<ReadonlySet<string>> {
+  const rows = await db.query<{ tool: string | null; args: Record<string, unknown> | null }>(
+    `SELECT a.proposal->>'tool' AS tool, a.proposal->'args' AS args FROM ops.approval_request a
+      WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2
+        AND NOT ${STALE_PLAN_CARD_SQL} AND NOT ${DEAD_CARD_SQL}`,
+    [siteId, STAFF_ACTION_KIND],
+  );
+  return new Set(rows.rows.map((r) => changeKey(r.tool ?? "", r.args ?? {})));
 }

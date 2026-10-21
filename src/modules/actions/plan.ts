@@ -111,7 +111,7 @@ export const PLAN_ACTIONS = {
       childToken: z.string().min(1).max(64),
       bucket: z.enum(BUCKETS),
       vanId: z.string().min(1).max(64).nullable().optional(),
-      // The board a card was drafted on (PPE-110): a save past it is the board's CHANGED, never a move over it.
+      // The board a card was drafted on: a save past it is the board's CHANGED, never a move over it.
       version: z.number().int().min(0).optional(),
     }),
     confirm: false,

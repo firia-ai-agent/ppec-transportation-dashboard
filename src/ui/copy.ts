@@ -3348,7 +3348,6 @@ export const replanDraft = {
 } as const;
 
 export const confirmCopy = {
-  heading: "Confirm a change",
   /** The note a stale agent plan card leaves on For you (Vera): its line is `refusal.says.STALE_CARD`. */
   staleNoteDismiss: "Dismiss",
   confirm: "Approve",
@@ -3373,7 +3372,6 @@ export const confirmCopy = {
     /** A tool with no verb of its own: still says what it is refusing, which is the change. */
     generic: "Don't make the change",
   },
-  pending: "Nothing happens until you approve.",
   done: "Done.",
   declined: "Not done. Nothing changed.",
   /**

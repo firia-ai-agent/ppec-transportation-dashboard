@@ -131,7 +131,7 @@ export type LegReceiverInput = {
   readonly legId: string;
   readonly childToken: string;
   /**
-   * WHO will receive the child: the guardian whose message asked for the change (PPE-98), carried
+   * WHO will receive the child: the guardian whose message asked for the change, carried
    * on the proposal from the run's own trigger. Required — the earliest contact on the child's file
    * is not a stand-in for the adult who said they would be home.
    */
@@ -168,7 +168,7 @@ export type LegReceiverWritten =
  */
 export async function recordLegReceiver(tx: Exec, input: LegReceiverInput): Promise<LegReceiverWritten> {
   /*
-   * EXACTLY THE ADULT WHO ASKED (PPE-98), and only if this child's file already knows them. A
+   * EXACTLY THE ADULT WHO ASKED, and only if this child's file already knows them. A
    * proposal that names nobody, or a contact who holds no authorization for this child at all, is
    * `NO_CONTACT`: the hold stays and the decision rolls back. Adding a *new* adult to a child's file
    * is `propose_contact_or_profile_change`'s job, decided on its own card — never a side effect here.

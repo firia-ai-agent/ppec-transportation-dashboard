@@ -8,11 +8,13 @@ import { modelReach } from "@/modules/agent/run/model-reach";
 import { decideApprovalAction } from "@/app/(app)/family-texts/actions";
 import { confirmStaffActionAction } from "@/app/(app)/confirm/actions";
 import { confirmCards } from "@/modules/actions/confirm-cards";
+import { staleNotes } from "@/modules/actions/stale-notes";
+import { dismissStaleNoteAction, openStaleNotePlanRoutesAction } from "@/app/(app)/family-texts/stale-note-actions";
 import { approvalCardsOrEmpty } from "@/app/(app)/family-texts/queue";
 import { demoDay } from "@/domain/board/day";
 import { siteOf } from "@/modules/plan/api";
 import { AgentBubble } from "./AgentBubble";
-import { confirmPanel, replyPanel, type PanelView } from "./panel";
+import { confirmPanel, replyPanel, stalePanel, type PanelView } from "./panel";
 import { PanelActionsProvider } from "./PanelActions";
 import { AgentCompose } from "./AgentCompose";
 import { AgentPulse } from "./AgentPulse";
@@ -88,6 +90,8 @@ export async function ConsoleShell({
   const panels: PanelView[] = [
     ...(waiting ? await approvalCardsOrEmpty([siteOf(caller)]) : []).map((card) => replyPanel(card, familyThreadHref(card.threadKey))),
     ...(waiting ? await confirmCards(getNeonDb(), siteOf(caller)).catch(() => []) : []).map(confirmPanel),
+    // A stale card is one card with its note in it, as on For you (Vera). A read; nothing is cleared here.
+    ...(canDecide ? await staleNotes(getNeonDb(), siteOf(caller)).catch(() => []) : []).map(stalePanel),
   ];
   // Whether the thread has moved since, and whether a run is on its way (ledger #75 b).
   const pulse = canDecide ? await threadPulseOrQuiet(getNeonDb, siteOf(caller)) : { stamp: "", working: false };
@@ -105,7 +109,7 @@ export async function ConsoleShell({
   return (
     <>
       {/* What every panel's buttons run, wherever it is drawn (ledger #79). */}
-      <PanelActionsProvider actions={{ decide: decideApprovalAction, confirm: confirmStaffActionAction }}>
+      <PanelActionsProvider actions={{ decide: decideApprovalAction, confirm: confirmStaffActionAction, dismissStale: dismissStaleNoteAction, openStale: openStaleNotePlanRoutesAction }}>
         <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
           {children}
         </AppShell>
