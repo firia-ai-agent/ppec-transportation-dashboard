@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { loadBoard } from "@/modules/plan/store";
-import { seedStaff } from "@/test/messaging";
+import { seedSecondSite, seedStaff, SITE_B } from "@/test/messaging";
 import { freshPlanDb, SITE } from "@/test/pglite";
 import { saveAutoPlan } from "@/test/save-plan";
 import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
@@ -67,14 +67,14 @@ describe("a stale agent plan card on For you (Vera, #124)", () => {
 
   it("Dismiss removes the note; the card stays unapprovable", async () => {
     const { card } = await staleCard("note-b");
-    expect(await clearStaleNote(db, { siteId: SITE, approvalId: card, userId: director, how: "DISMISSED", now: NOW })).toBe(true);
+    expect(await clearStaleNote(db, { approvalId: card, userId: director, how: "DISMISSED", now: NOW })).toBe(true);
     expect((await staleNotes(db, SITE)).map((n) => n.approvalId)).not.toContain(card);
     expect((await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW })).status).toBe(422);
   });
 
   it("opening Plan routes from the note clears it", async () => {
     const { card } = await staleCard("note-c");
-    expect(await clearStaleNote(db, { siteId: SITE, approvalId: card, userId: director, how: "OPENED_PLAN_ROUTES", now: NOW })).toBe(true);
+    expect(await clearStaleNote(db, { approvalId: card, userId: director, how: "OPENED_PLAN_ROUTES", now: NOW })).toBe(true);
     expect((await staleNotes(db, SITE)).map((n) => n.approvalId)).not.toContain(card);
     const kept = await db.query<{ how: string }>("SELECT proposal->'stale_note_cleared'->>'how' AS how FROM ops.approval_request WHERE id = $1", [card]);
     expect(kept.rows[0].how).toBe("OPENED_PLAN_ROUTES");
@@ -86,9 +86,9 @@ describe("a stale agent plan card on For you (Vera, #124)", () => {
       siteId: SITE, key: "live-d", by: "agent:run", tool: "save_plan", action: "save_plan",
       args: { date: DATE, leg: "PM", moves: [], basis_version: view.version }, summary: "Change the afternoon plan",
     });
-    expect(await clearStaleNote(db, { siteId: SITE, approvalId: live, userId: director, how: "DISMISSED", now: NOW })).toBe(false);
+    expect(await clearStaleNote(db, { approvalId: live, userId: director, how: "DISMISSED", now: NOW })).toBe(false);
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(live);
-    for (const n of await staleNotes(db, SITE)) await clearStaleNote(db, { siteId: SITE, approvalId: n.approvalId, userId: director, how: "DISMISSED", now: NOW });
+    for (const n of await staleNotes(db, SITE)) await clearStaleNote(db, { approvalId: n.approvalId, userId: director, how: "DISMISSED", now: NOW });
     expect(await staleNotes(db, SITE)).toEqual([]);
   });
 });
@@ -111,5 +111,47 @@ describe("the bubble's thread for a stale plan card (Vera, #124)", () => {
     expect(await lineOf(card)).not.toHaveProperty("link");
     await db.query("UPDATE ops.approval_request SET proposal = proposal - 'outcome' WHERE id = $1", [card]);
     expect(await lineOf(card)).toMatchObject({ text: confirmCopy.alreadyHandled });
+  });
+});
+
+/**
+ * WHO MAY CLEAR A NOTE (PPE-114): Dismiss and Open Plan routes are refused, and write nothing, for
+ * another centre's coordinator, a card already decided, the front desk, and a family.
+ */
+describe("clearing a stale card's note is refused for the wrong caller or card (PPE-114)", () => {
+  const HOWS = ["DISMISSED", "OPENED_PLAN_ROUTES"] as const;
+  const proposalOf = async (id: string) =>
+    (await db.query<{ p: unknown }>("SELECT proposal AS p FROM ops.approval_request WHERE id = $1", [id])).rows[0].p;
+  const refusedFor = async (card: string, userId: string | undefined) => {
+    const before = await proposalOf(card);
+    for (const how of HOWS) expect(await clearStaleNote(db, { approvalId: card, userId, how, now: NOW })).toBe(false);
+    expect(await proposalOf(card)).toEqual(before);
+  };
+
+  it("another centre's coordinator", async () => {
+    await seedSecondSite(db);
+    const elsewhere = await seedStaff(db, "COORDINATOR", SITE_B);
+    const { card } = await staleCard("ppe114-site");
+    await refusedFor(card, elsewhere);
+    expect((await staleNotes(db, SITE)).map((n) => n.approvalId)).toContain(card);
+  });
+
+  it("a card that was already decided", async () => {
+    const { card } = await staleCard("ppe114-decided");
+    expect((await confirmStaffAction(db, { userId: director, approvalId: card, decision: "DECLINED", now: NOW })).status).toBe(200);
+    await refusedFor(card, director);
+  });
+
+  it("a front-desk caller", async () => {
+    const frontDesk = await seedStaff(db, "FRONT_DESK", SITE);
+    const { card } = await staleCard("ppe114-frontdesk");
+    await refusedFor(card, frontDesk);
+  });
+
+  it("a family caller (signed in, no staff role)", async () => {
+    const family = await seedStaff(db, "COORDINATOR", null);
+    const { card } = await staleCard("ppe114-family");
+    await refusedFor(card, family);
+    await refusedFor(card, undefined);
   });
 });

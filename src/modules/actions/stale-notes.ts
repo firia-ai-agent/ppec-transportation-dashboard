@@ -8,6 +8,8 @@
  * the card's own `proposal` JSON (`stale_note_cleared`), so no column and no migration.
  */
 import type { Exec } from "@/db/exec";
+import { APPROVAL_ROLES } from "@/auth/access";
+import { requireSiteAccess } from "@/auth/core";
 import { sqlPlanStoreIn } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { refusalOf, refusalWords } from "@/modules/changes/refusal";
@@ -49,20 +51,30 @@ export async function staleCardWords(db: Exec, siteId: string, args: Record<stri
 }
 
 /**
- * Clear one note: dismissed, or Plan routes opened from it. Only a stale, undecided card at this
- * centre — a live card is never touched, and the card itself stays undecided (Approve still 422s).
+ * Clear one note: dismissed, or Plan routes opened from it (PPE-114). Only somebody who may decide
+ * cards (`APPROVAL_ROLES`) at the card's own centre, and only a stale, undecided card — a live card,
+ * a decided one, another centre's, a front desk's or a family's press writes nothing. The card itself
+ * stays undecided (Approve still 422s).
  */
 export async function clearStaleNote(
   db: Exec,
-  a: { readonly siteId: string; readonly approvalId: string; readonly userId: string; readonly how: "DISMISSED" | "OPENED_PLAN_ROUTES"; readonly now: Date },
+  a: { readonly approvalId: string; readonly userId: string | undefined; readonly how: "DISMISSED" | "OPENED_PLAN_ROUTES"; readonly now: Date },
 ): Promise<boolean> {
+  const id = /^[0-9a-f-]{36}$/i.test(a.approvalId) ? a.approvalId : null;
+  const card = (await db.query<{ site_id: string }>("SELECT site_id FROM ops.approval_request WHERE id = $1", [id])).rows[0];
+  if (!card) return false;
+  try {
+    await requireSiteAccess(db, a.userId, card.site_id, APPROVAL_ROLES);
+  } catch {
+    return false;
+  }
   const done = await db.query<{ id: string }>(
     `UPDATE ops.approval_request a
         SET proposal = a.proposal || jsonb_build_object('stale_note_cleared', jsonb_build_object('how', $3::text, 'by', $4::text, 'at', $5::text))
       WHERE a.id = $1 AND a.site_id = $2 AND a.decided_at IS NULL AND a.proposal->>'kind' = '${STAFF_ACTION_KIND}'
         AND NOT (a.proposal ? 'stale_note_cleared') AND ${STALE_PLAN_CARD_SQL}
       RETURNING a.id`,
-    [/^[0-9a-f-]{36}$/i.test(a.approvalId) ? a.approvalId : null, a.siteId, a.how, `staff:${a.userId}`, a.now.toISOString()],
+    [id, card.site_id, a.how, `staff:${a.userId}`, a.now.toISOString()],
   );
   return done.rows.length === 1;
 }

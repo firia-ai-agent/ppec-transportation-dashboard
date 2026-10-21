@@ -18,7 +18,6 @@ import { confirmCopy } from "@/ui/copy";
 import { refusalWords } from "@/modules/changes/refusal";
 import { redirect } from "next/navigation";
 import { canOpenForYou } from "@/auth/access";
-import { siteOf } from "@/modules/plan/api";
 import { clearStaleNote } from "@/modules/actions/stale-notes";
 import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 
@@ -59,7 +58,7 @@ export async function confirmStaffActionAction(_previous: ConfirmState, form: Fo
 export async function dismissStaleNoteAction(form: FormData): Promise<void> {
   const caller = await getCaller();
   if (caller.kind !== "STAFF" || !caller.userId || !canOpenForYou(caller)) return;
-  await clearStaleNote(getNeonDb(), { siteId: siteOf(caller), approvalId: String(form.get("card") ?? ""), userId: caller.userId, how: "DISMISSED", now: new Date() });
+  await clearStaleNote(getNeonDb(), { approvalId: String(form.get("card") ?? ""), userId: caller.userId, how: "DISMISSED", now: new Date() });
   revalidatePath("/family-texts");
 }
 
@@ -67,7 +66,7 @@ export async function dismissStaleNoteAction(form: FormData): Promise<void> {
 export async function openStaleNotePlanRoutesAction(form: FormData): Promise<void> {
   const caller = await getCaller();
   if (caller.kind === "STAFF" && caller.userId && canOpenForYou(caller)) {
-    await clearStaleNote(getNeonDb(), { siteId: siteOf(caller), approvalId: String(form.get("card") ?? ""), userId: caller.userId, how: "OPENED_PLAN_ROUTES", now: new Date() });
+    await clearStaleNote(getNeonDb(), { approvalId: String(form.get("card") ?? ""), userId: caller.userId, how: "OPENED_PLAN_ROUTES", now: new Date() });
     revalidatePath("/family-texts");
   }
   redirect(PLAN_ROUTES_PATH);
