@@ -12,6 +12,7 @@ import { approvalQueue } from "./queue";
 import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 import { decideApprovalAction, takeAlertAction } from "./actions";
+import { dismissStaleNoteAction, openStaleNotePlanRoutesAction } from "@/app/(app)/confirm/stale-note-actions";
 import { contextFor } from "./context";
 import { conversationRows, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
@@ -19,7 +20,6 @@ import { demoControlsGate } from "@/modules/demo/gate";
 import { confirmCards } from "@/modules/actions/confirm-cards";
 import { confirmPanel } from "@/ui/panel";
 import { staleNotes } from "@/modules/actions/stale-notes";
-import { dismissStaleNoteAction, openStaleNotePlanRoutesAction } from "@/app/(app)/confirm/actions";
 import { phonesForDay, threadFor } from "./thread";
 
 export const metadata = { title: familyTexts.documentTitle };
@@ -235,7 +235,7 @@ async function readQueue(
   }
 }
 
-/** Stale agent plan cards' notes (Vera, #124), failing soft like the rest. */
+/** Stale agent plan cards' notes, failing soft like the rest. */
 async function readStaleNotes(siteId: string) {
   try {
     return await staleNotes(getExec(), siteId);

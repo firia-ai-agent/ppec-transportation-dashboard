@@ -954,6 +954,17 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: ALL_STAFF, siteScoped: true },
   },
   /**
+   * A stale agent plan card's note on For you: Dismiss, and Open Plan routes. The people who may
+   * open For you (`canOpenForYou` is `APPROVAL_ROLES`); the note's centre comes off its row.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/confirm/stale-note-actions.ts",
+    path: "action:stale-note-clear",
+    methods: ["POST"],
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
+  },
+  /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
    * provider and nothing else; it must run for a caller with no session.
    */

@@ -95,7 +95,7 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
       date: a.date,
       direction: a.leg,
       ...asMove(a as z.infer<typeof move>),
-      // The board the card was drafted on (PPE-110), as `save_plan` below.
+      // The board the card was drafted on, as `save_plan` below.
       ...(typeof a.basis_version === "number" ? { version: a.basis_version } : {}),
     }),
   }),

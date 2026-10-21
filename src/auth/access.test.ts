@@ -473,6 +473,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "action:approval-decision": "session:DIRECTOR+COORDINATOR",
       // A confirm card's buttons (ledger #74 d): a session; the action's own row decides inside.
       "action:staff-action-confirm": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
+      // A stale plan card's note on For you: Dismiss / Open Plan routes, for who may open For you.
+      "action:stale-note-clear": "session:DIRECTOR+COORDINATOR",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });
@@ -490,6 +492,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "action:approval-decision",
       // A confirm card takes a card id the same way (ledger #74 d): its site comes off the row.
       "action:staff-action-confirm",
+      // A stale card's note takes the card id too; its site comes off the row.
+      "action:stale-note-clear",
     ]);
   });
 

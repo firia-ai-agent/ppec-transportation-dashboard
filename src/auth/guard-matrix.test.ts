@@ -699,6 +699,7 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
       ["action:approval-decision", "session"],
       ["action:staff-action-confirm", "session"],
+      ["action:stale-note-clear", "session"],
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);

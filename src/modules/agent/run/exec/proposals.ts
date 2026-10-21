@@ -888,7 +888,7 @@ async function staffAction(_deps: ExecutorDeps, tx: Exec, input: ProposalInput):
 const BASIS_TOOLS: ReadonlySet<string> = new Set(["save_plan", "move_child"]);
 
 /**
- * A DIRECT PLAN CARD CARRIES ITS BOARD (PPE-110): `save_plan` and `move_child` cards record the
+ * A DIRECT PLAN CARD CARRIES ITS BOARD: `save_plan` and `move_child` cards record the
  * leg's `plan_run.version` as it stands in this transaction, the same as a drafted card. A save past
  * it makes the card stale by version (`STALE_PLAN_CARD_SQL`), never by the clock, and Approve names
  * that version so the board refuses rather than writing over the newer save. Always read here, never
