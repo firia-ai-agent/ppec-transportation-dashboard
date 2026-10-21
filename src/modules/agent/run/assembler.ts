@@ -216,8 +216,9 @@ export function dbContextAssembler(
     );
 
     return {
-      prompt: tierPrompt(facts, input),
-      promptBlocks: tierPromptBlocks(facts, input),
+      // Results are written in this family's tokens too (ledger #89), as T3 is above.
+      prompt: tierPrompt(facts, input, (text) => tokenizeNames(text, familyNames)),
+      promptBlocks: tierPromptBlocks(facts, input, (text) => tokenizeNames(text, familyNames)),
       tokens,
       // A family's text is never offered a staff member's tools (ledger #74): no action a person
       // takes in the UI, no read of the whole board. One read is theirs (ledger #79): their own

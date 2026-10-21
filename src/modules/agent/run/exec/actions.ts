@@ -90,7 +90,7 @@ const yes = (b: boolean) => (b ? "yes" : "no");
 
 /**
  * THE PLAN BOARD AS THE PERSON SEES IT (ledger #74, #77): when each van leaves, its counts, its
- * riders with their ≈ times, and who does not fit — people by name, which `inTokens` turns into the
+ * riders with their ≈ times, and who does not fit — people by name, which `context.resultLines` turns into the
  * prompt's tokens. No ids and no version: the model has nothing to copy wrongly into a card.
  */
 function getPlanExecutor(deps: ExecutorDeps): ToolExecutor {
@@ -282,32 +282,18 @@ const vanNameOfId = (id: string) => {
   return van ? vanNameOf(van.slot) : "a van";
 };
 
-/** Every teammate executor: the reads, and Take. The cards are proposals (run/exec/proposals.ts). */
+/**
+ * Every teammate executor: the reads, and Take. The cards are proposals (run/exec/proposals.ts).
+ * Their facts reach the model in tokens through `context.resultLines`, like every result (ledger #89).
+ */
 export function staffExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
-    get_plan: inTokens(getPlanExecutor(deps)),
-    get_child: inTokens(getChildExecutor(deps)),
-    get_waiting: inTokens(getWaitingExecutor(deps)),
-    get_activity: inTokens(getActivityExecutor(deps)),
+    get_plan: getPlanExecutor(deps),
+    get_child: getChildExecutor(deps),
+    get_waiting: getWaitingExecutor(deps),
+    get_activity: getActivityExecutor(deps),
     read_family_texts: readFamilyTextsExecutor(deps),
     take_alert: actionExecutor(deps, actionTool("take_alert")!),
-  };
-}
-
-/**
- * THE MODEL READS PEOPLE AS TOKENS (PRD: agent context gets tokens; the gateway refuses untokenized
- * names). A read hands back what screens show — "Zoe B." — so every fact is tokenized on its way to
- * the model. It then writes "C6", which the bubble turns back into a name, instead of writing the
- * name and having the reply's own redaction wipe it to "[REDACTED:NAME]".
- */
-function inTokens(executor: ToolExecutor): ToolExecutor {
-  return async (call) => {
-    const out = await executor(call);
-    if (out.status !== "executed" || !out.promptFacts) return out;
-    const facts = Object.fromEntries(
-      Object.entries(out.promptFacts).map(([k, v]) => [k, typeof v === "string" ? tokenizeNames(v) : v]),
-    );
-    return { ...out, promptFacts: facts };
   };
 }
 
