@@ -228,7 +228,7 @@ type DropoffProposal = {
   reply_text?: string;
   /** The model's one line for the coordinator, as stored by the proposal writer. */
   alert_text?: string;
-  /** The guardian whose message asked for this change: the receiver Approve records (PPE-98). */
+  /** The guardian whose message asked for this change: the receiver Approve records. */
   requested_by_contact?: string | null;
   /** The family's request this answers (`change_request`, kind AVAILABILITY; ledger #83). */
   change_request_id?: string | null;

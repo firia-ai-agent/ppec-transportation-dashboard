@@ -417,7 +417,7 @@ export function remoteProvider(
         },
       })),
       tool_choice: "required",
-      // No `parallel_tool_calls` (ledger #86, PPE-109): with `require_parameters` it can leave no
+      // No `parallel_tool_calls` (ledger #86): with `require_parameters` it can leave no
       // endpoint to route to. The gateway refuses a turn with several calls and the loop retries.
       provider: {
         allow_fallbacks: false,

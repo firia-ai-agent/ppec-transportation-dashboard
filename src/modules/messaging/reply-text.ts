@@ -61,13 +61,13 @@ const BANNED: readonly { readonly what: string; readonly re: RegExp }[] = [
    */
   { what: "phone number", re: /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s*\d{3}[.\-\s]?\d{4}|\b\d{3}[.\-\s]\d{3}[.\-\s]\d{4}\b|\b\d{3}[-.]\d{4}\b/ },
   /*
-   * PPE-97: the shapes the line above misses. Seven or more digits run together ("5615550177"),
+   * The shapes the line above misses. Seven or more digits run together ("5615550177"),
    * and ten or more digits with a single space, dot or dash between them ("5 6 1 5 5 5 0 1 7 7").
    * Full-width digits ("５６１…") reach these too, because the text is NFKC-normalized first.
    */
   { what: "phone number", re: /\d{7,}|(?:\d[\s.\-]){9,}\d/ },
   /*
-   * PPE-97: a web address without a scheme. A bare domain ("tokos.app/pay") and one spelled out
+   * A web address without a scheme. A bare domain ("tokos.app/pay") and one spelled out
    * to get past a filter ("example dot com", "example (dot) com") are both a link to a family.
    */
   {

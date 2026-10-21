@@ -430,7 +430,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   if (alertWords === null) return couldNotAnswer(tx, input, "NO_ALERT_IN_NAMES");
 
   /*
-   * WHO ASKED (PPE-98): the guardian on the thread of the message that started this run. Read off
+   * WHO ASKED: the guardian on the thread of the message that started this run. Read off
    * the trigger's own message row, never off an argument the model wrote, and carried on the
    * proposal so Approve records *that* adult as the receiver rather than whichever contact the
    * child's file lists first.
@@ -470,7 +470,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
      * names, no tokens — because this field is read by screens and by nothing else.
      */
     alert_text: alertWords,
-    /** The guardian whose message asked for this, for Approve's receiver record (PPE-98). */
+    /** The guardian whose message asked for this, for Approve's receiver record. */
     requested_by_contact: requestedByContact,
     basis_message_id: basis.rows[0]?.id ?? null,
     /**
