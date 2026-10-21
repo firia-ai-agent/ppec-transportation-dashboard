@@ -23,6 +23,8 @@ import {
   readAgentBubbleOpen,
   setAgentBubbleOpen,
   subscribeAgentBubbleOpen,
+  nearBottom,
+  threadTakesWheel,
   writeAgentBubbleOpen,
   type OpenStore,
 } from "./agent-bubble-state";
@@ -466,5 +468,33 @@ describe("the copy is the copy module's, and says nothing it may not", () => {
     // No bare words in the component: everything it shows is `agentBubble.*`.
     const jsxText = [...code(read(UI, "AgentBubble.tsx")).matchAll(/>([^<>{}\n]*[A-Za-z]{2}[^<>{}\n]*)</g)];
     expect(jsxText.map((m) => m[1].trim()).filter(Boolean)).toEqual([]);
+  });
+});
+
+describe("the open panel owns the wheel", () => {
+  const box = (scrollTop: number, scrollHeight = 1000, clientHeight = 400) => ({ scrollTop, scrollHeight, clientHeight });
+
+  it("lets the thread scroll only while it can still move that way", () => {
+    expect(threadTakesWheel(box(100), 40)).toBe(true);
+    expect(threadTakesWheel(box(100), -40)).toBe(true);
+    expect(threadTakesWheel(box(0), -40)).toBe(false);
+    expect(threadTakesWheel(box(600), 40)).toBe(false);
+  });
+
+  it("a thread too short to scroll takes no wheel, so the panel swallows it rather than the board scrolling", () => {
+    expect(threadTakesWheel(box(0, 300, 400), 40)).toBe(false);
+    expect(threadTakesWheel(box(0, 300, 400), -40)).toBe(false);
+  });
+
+  it("follows new lines only for a reader already at the bottom", () => {
+    expect(nearBottom(box(600))).toBe(true);
+    expect(nearBottom(box(560))).toBe(true);
+    expect(nearBottom(box(200))).toBe(false);
+  });
+
+  it("the thread is marked for the wheel guard and stops at its ends", () => {
+    const css = readFileSync(path.join(process.cwd(), "src/ui/AgentThread.module.css"), "utf8");
+    expect(css).toMatch(/\.thread \{[^}]*overscroll-behavior: contain/);
+    expect(readFileSync(path.join(process.cwd(), "src/ui/AgentThread.tsx"), "utf8")).toContain("data-agent-thread");
   });
 });

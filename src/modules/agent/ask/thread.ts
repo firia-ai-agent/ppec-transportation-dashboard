@@ -29,6 +29,7 @@ import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
 import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
+import { AGENT_RETRY_JOB_KIND } from "@/modules/agent/run/timers";
 import { ANSWER_TOOLS } from "./answer";
 import { refusalWords, type Refusal } from "@/modules/changes/refusal";
 import { MODEL_UNAVAILABLE_CATEGORY } from "@/modules/agent/alert-task";
@@ -130,18 +131,22 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
    * the panel says it is working rather than leaving the question bare. The answer or the
    * "couldn't answer" line replaces it on the refresh after the run ends.
    */
-  const pending = new Set(
+  const pendingRuns = new Map(
     (
-      await db.query<{ ask_id: string }>(
-        `SELECT trigger_id AS ask_id FROM ops.agent_run
-          WHERE site_id = $1 AND trigger_type = 'staff.ask' AND state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')
-            AND created_at > now() - make_interval(secs => $2)`,
+      await db.query<{ ask_id: string; state: string; retrying: boolean }>(
+        `SELECT r.trigger_id AS ask_id, r.state::text AS state,
+                EXISTS (SELECT 1 FROM ops.job j WHERE j.kind = $3 AND j.payload->>'runId' = r.id::text
+                          AND j.state = 'SCHEDULED') AS retrying
+           FROM ops.agent_run r
+          WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')
+            AND r.created_at > now() - make_interval(secs => $2)`,
         // A run older than the bubble keeps refreshing for is not "working" any more: it was
         // abandoned (a request that timed out mid-drive) and its outcome line is what is true.
-        [siteId, ASK_WORKING_FOR_SECONDS],
+        [siteId, ASK_WORKING_FOR_SECONDS, AGENT_RETRY_JOB_KIND],
       )
-    ).rows.map((r) => r.ask_id),
+    ).rows.map((r) => [r.ask_id, r] as const),
   );
+  const pending = new Set(pendingRuns.keys());
   /*
    * THE MODEL'S ANSWERS, so a reload shows what it said and not only what was asked: each run's
    * `reply_to_staff` or `summarize_thread_for_staff` note, in names (`ask/answer.ts`), placed when
@@ -163,6 +168,8 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
       `SELECT r.trigger_id AS ask_id, c.id::text AS id, c.tool, c.args->>'leg' AS leg, c.created_at AS at
          FROM ops.agent_run r JOIN ops.agent_tool_call c ON c.run_id = r.id
         WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND r.trigger_id = ANY($2::text[]) AND c.status <> 'PENDING'
+          -- A slipped turn (recordSlip) is the model trying again, not a step it took.
+          AND coalesce(c.result->>'error_code', '') NOT LIKE 'REJECTED%'
         ORDER BY c.created_at, c.seq`,
       [siteId, [...pending]],
     )
@@ -171,12 +178,16 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     const ask = { at: r.at, item: { kind: "staff", id: r.id, text: detokenizeNames(askTextOf(r.summary), "label") } as AgentThreadItem };
     // The outcome, when there is one, is what the person reads — never "working" over it.
     if (pending.has(r.id) && !answeredByAlert.has(r.id) && !answeredIds.has(r.id)) {
-      const steps = stepRows.filter((st) => st.ask_id === r.id);
-      const last = steps.length > 0 ? steps[steps.length - 1].at : r.at;
+      // One line per step, the same step twice in a row said once (prod read a plan five times).
+      const steps = stepRows
+        .filter((st) => st.ask_id === r.id)
+        .map((st) => ({ at: st.at, id: st.id, tool: st.tool, text: stepWords(st.tool, st.leg) }))
+        .filter((st, i, all) => i === 0 || all[i - 1].text !== st.text);
+      const last = steps.length > 0 ? steps[steps.length - 1] : null;
       return [
         ask,
-        ...steps.map((st) => ({ at: st.at, item: { kind: "step", id: `${r.id}:step:${st.id}`, text: stepWords(st.tool, st.leg) } as AgentThreadItem })),
-        { at: last, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem },
+        ...steps.map((st) => ({ at: st.at, item: { kind: "step", id: `${r.id}:step:${st.id}`, text: st.text } as AgentThreadItem })),
+        { at: last?.at ?? r.at, item: { kind: "agent", id: `${r.id}:working`, text: nowWords(pendingRuns.get(r.id)!, last?.tool ?? null) } as AgentThreadItem },
       ];
     }
     // The same line, under the same id, the bubble shows live (`agent-ask-state.addNoAnswer`).
@@ -340,6 +351,20 @@ async function alertsHeard(
       } as AgentThreadItem,
     }];
   });
+}
+
+/**
+ * WHAT IT IS DOING NOW (ledger #87), the working bubble's words, from the run's own state — so the
+ * wait before the first step, and a busy model's minute, say something true instead of nothing:
+ * queued; the first turn, which reads the board the prompt carries; parked for a model retry; a
+ * read done and the next turn thinking. Fixed words, never the model's.
+ */
+export function nowWords(run: { readonly state: string; readonly retrying: boolean }, lastTool: string | null): string {
+  if (run.state === "QUEUED") return agentSteps.starting;
+  if (run.retrying) return agentSteps.modelBusy;
+  if (run.state === "WAITING_TOOL") return agentSteps.waiting;
+  if (lastTool === null) return agentSteps.firstLook;
+  return agentSteps.default;
 }
 
 /** The quiet line for one step (ledger #87): by tool, in fixed words, with the leg it read. */

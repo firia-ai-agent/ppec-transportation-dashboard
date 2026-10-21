@@ -7,7 +7,7 @@ import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
-import { agentAsk, agentBubble, agentTasks } from "@/ui/copy";
+import { agentAsk, agentBubble, agentSteps, agentTasks } from "@/ui/copy";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
 import { approvalKey } from "../policy";
@@ -576,7 +576,7 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     expect(woken).toEqual([r.runId]);
     expect((await readAgentThread(db, sc.siteId)).items.slice(1)).toEqual([
       { kind: "staff", id, text: "which van is over" },
-      { kind: "agent", id: `${id}:working`, text: agentBubble.working },
+      { kind: "agent", id: `${id}:working`, text: agentSteps.starting },
     ]);
 
     await driveRun(harness.deps(0), r.runId);

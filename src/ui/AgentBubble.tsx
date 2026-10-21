@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { MessageCircle, X } from "lucide-react";
 import { agentBubble, fill } from "./copy";
@@ -16,6 +16,7 @@ import {
   setAgentSeen,
   subscribeAgentBubbleOpen,
   subscribeAgentSeen,
+  threadTakesWheel,
 } from "./agent-bubble-state";
 import { getAsked, getAskedOnServer, subscribeAsked } from "./agent-ask-state";
 import type { PanelView } from "./panel";
@@ -103,6 +104,24 @@ export function AgentBubble({
     if (stamp !== "" && (open || seen === null) && seen !== stamp) setAgentSeen(stamp);
   }, [open, seen, stamp]);
 
+  /*
+   * THE PANEL OWNS THE WHEEL. Over the open panel a wheel scrolls the thread or nothing, never the
+   * board behind it (`threadTakesWheel`). Non-passive, which React's `onWheel` cannot be. Off the
+   * panel the board scrolls as ever.
+   */
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    const onWheel = (e: WheelEvent) => {
+      const thread = panel.querySelector<HTMLElement>("[data-agent-thread]");
+      if (thread && e.target instanceof Node && thread.contains(e.target) && threadTakesWheel(thread, e.deltaY)) return;
+      e.preventDefault();
+    };
+    panel.addEventListener("wheel", onWheel, { passive: false });
+    return () => panel.removeEventListener("wheel", onWheel);
+  }, [open]);
+
   if (agentBubbleHidden({ pathname, tab, canDecide })) return null;
 
   const unseen = !open && hasUnseen(stamp, seen);
@@ -124,7 +143,7 @@ export function AgentBubble({
         </button>
       )}
       {open ? (
-        <aside className={styles.panel} role="dialog" aria-label={agentBubble.title}>
+        <aside ref={panelRef} className={styles.panel} role="dialog" aria-label={agentBubble.title}>
           <div className={styles.head}>
             <h2 className={styles.title}>{agentBubble.title}</h2>
             <button

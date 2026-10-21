@@ -1,4 +1,8 @@
+"use client";
+
+import { useLayoutEffect, useRef } from "react";
 import { AgentPanel } from "./AgentPanel";
+import { nearBottom } from "./agent-bubble-state";
 import type { PanelView } from "./panel";
 import { agentBubble, fill } from "./copy";
 import { Pill, PillLabel } from "./Pill";
@@ -68,8 +72,25 @@ export function AgentThread({
    */
   panels?: readonly PanelView[];
 }) {
+  /*
+   * FOLLOW THE CONVERSATION. The panel opens on the newest line, and a new step or answer keeps the
+   * reader at the bottom — unless they have scrolled up to read, in which case nothing moves.
+   */
+  const ref = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
+  }, [items, panels]);
   return (
-    <div className={styles.thread}>
+    <div
+      ref={ref}
+      className={styles.thread}
+      data-agent-thread=""
+      onScroll={() => {
+        if (ref.current) following.current = nearBottom(ref.current);
+      }}
+    >
       {items.length === 0 ? <p className={styles.empty}>{agentBubble.empty}</p> : null}
       {items.map((item) => {
         switch (item.kind) {

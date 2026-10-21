@@ -3426,6 +3426,11 @@ export const agentSteps = {
   propose_plan_change: "Drafting a plan card…",
   card: "Drafting a card…",
   default: "Thinking…",
+  /** The working bubble's words before and between steps (`ask/thread.ts` `nowWords`). */
+  starting: "Starting…",
+  firstLook: "Looking at today's plan…",
+  modelBusy: "The model's busy. Trying again in a minute…",
+  waiting: "Waiting on a reply…",
 } as const;
 
 export const agentBubble = {
