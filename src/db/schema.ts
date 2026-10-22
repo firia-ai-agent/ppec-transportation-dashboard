@@ -348,6 +348,8 @@ export const planAssignment = ops.table("plan_assignment", {
   pinned: boolean("pinned").notNull().default(false),
   /** A time agreed with the family, "HH:MM": the van drops this child no earlier (ledger #79). */
   notBefore: text("not_before"),
+  /** Where a route put this child's stop in the van's run (ledger #90): a child token, or "first". */
+  dropAfter: text("drop_after"),
   ...audit,
 }, (t) => [primaryKey({ columns: [t.planRunId, t.childToken] }),
   index("plan_assignment_van_idx").on(t.planRunId, t.vehicleId, t.stopSeq),

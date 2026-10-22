@@ -36,6 +36,7 @@ function pinnedOnly(plan: BoardPlan, tokens: readonly string[]): BoardPlan {
   );
 }
 import { TEST_DATE, scenarioPlan, testDay, vanIdOfSlot } from "@/test/board-day";
+import { FIRST_STOP } from "./board";
 
 /**
  * The board's own day: the three vans, the children of one leg, and the three things a person
@@ -430,5 +431,23 @@ describe("stops, in the order a van drives them", () => {
       expect(route?.vanName).toBe(van.name);
       expect(route?.riderCount).toBe(stopCount(ridersInVan(day, plan, van.id)));
     }
+  });
+});
+
+describe("a stop a route placed (ledger #90)", () => {
+  it("goes first, or right after the child it names; a name not in the van leaves the window order", async () => {
+    const day = await testDay("PM");
+    const plan = scenarioPlan(day);
+    const van = day.vans.find((v) => ridersInVan(day, plan, v.id).length >= 3)!;
+    const [a, b, c] = ridersInVan(day, plan, van.id);
+    const tokens = (p: typeof plan) => ridersInVan(day, p, van.id).map((r) => r.token);
+    const window = tokens(plan);
+
+    expect(tokens({ ...plan, [a.token]: { ...plan[a.token], dropAfter: c.token } })).toEqual(
+      [...window.filter((t) => t !== a.token)].flatMap((t) => (t === c.token ? [t, a.token] : [t])),
+    );
+    expect(tokens({ ...plan, [c.token]: { ...plan[c.token], dropAfter: FIRST_STOP } })[0]).toBe(c.token);
+    expect(tokens({ ...plan, [b.token]: { ...plan[b.token], dropAfter: "not-in-this-van" } })).toEqual(window);
+    expect(tokens({ ...plan, [b.token]: { ...plan[b.token], dropAfter: b.token } })).toEqual(window);
   });
 });

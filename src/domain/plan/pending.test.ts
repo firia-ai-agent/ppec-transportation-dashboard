@@ -126,3 +126,22 @@ describe("who pins a child: a person, not Auto-plan", () => {
     expect(movesToSave(SAVED, dragged)).toEqual([toVan("child-1", "van-2")]);
   });
 });
+
+describe("where a route put a stop travels with the van it was put in (ledger #90)", () => {
+  const PLACED: BoardPlan = { ...SAVED, "child-2": { bucket: "VAN", vanId: "van-1", pinned: false, dropAfter: "child-9" } };
+
+  it("stays while the child stays in that van, and is gone once they move to another", () => {
+    expect(applyPending(PLACED, [toVan("child-2", "van-1")])["child-2"].dropAfter).toBe("child-9");
+    expect(applyPending(PLACED, [toVan("child-2", "van-2")])["child-2"].dropAfter).toBeUndefined();
+    expect(applyPending(PLACED, [{ childToken: "child-2", bucket: "UNASSIGNED", vanId: null }])["child-2"].dropAfter).toBeUndefined();
+  });
+
+  it("Save carries a stop put back in window order, and one a route placed", () => {
+    expect(movesToSave(PLACED, [toVan("child-2", "van-2")])).toContainEqual(expect.objectContaining({ childToken: "child-2", dropAfter: null }));
+    expect(movesToSave(SAVED, [{ ...toVan("child-2", "van-1"), dropAfter: "first" }])).toContainEqual(
+      expect.objectContaining({ childToken: "child-2", dropAfter: "first" }),
+    );
+    // Nothing changed: nothing to send.
+    expect(movesToSave(PLACED, [toVan("child-2", "van-1")]).filter((m) => m.childToken === "child-2")).toEqual([]);
+  });
+});

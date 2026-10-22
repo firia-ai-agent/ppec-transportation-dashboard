@@ -44,13 +44,15 @@ export type ActionTool = ToolDef & {
   readonly toInput: (args: Record<string, unknown>, version: BoardVersionLookup) => Promise<unknown>;
 };
 
-const move = z.object({ child_token: ID, bucket: BUCKET, van_id: ID.nullable().optional(), not_before: z.string().optional() });
+const move = z.object({ child_token: ID, bucket: BUCKET, van_id: ID.nullable().optional(), not_before: z.string().optional(), drop_after: ID.optional() });
 const asMove = (m: z.infer<typeof move>) => ({
   childToken: m.child_token,
   bucket: m.bucket,
   vanId: m.bucket === "VAN" ? (m.van_id ?? null) : null,
   // A time agreed with the family travels with the move (ledger #79).
   ...(m.not_before ? { notBefore: m.not_before } : {}),
+  // …and so does where the route put their stop in the van's run (ledger #90).
+  ...(m.drop_after ? { dropAfter: m.drop_after } : {}),
 });
 
 /**
